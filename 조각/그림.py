@@ -6,7 +6,8 @@
 두 그림 다 물체 키를 `키` mm 로 잡는다 — 그래서 그림마다 해상도가 달라도 된다.
 
   1) 잰다      물체 범위 · 줄마다 폭 · 연결 성분 · 안쪽 구멍
-  2) 후보      카탈로그 항목마다 잰 수치로 DSL 한 줄 (상자 · 원기둥 · 원뿔 · 구 · 45도 상자 · 토러스 · 두 덩어리)
+  2) 후보      카탈로그 항목마다 잰 수치로 DSL 한 줄 (상자 · 원기둥 · 원뿔 · 구 · 45도 상자 · 토러스 · 두 덩어리 ·
+               사람형: 부위 타원뿔대(A) · 부위 로프트 5 단면(B) · 부위 없는 층 타원(C))
   3) 대 본다   후보 메시를 **입력 그림과 같은 틀**에 그려 앞 · 옆 실루엣 IoU 평균 — 이게 앱이 아는 유일한 점수
   4) 고른다    가장 높은 것. 0.005 안의 후보는 **동점** — 그림 두 장으로는 못 가른다, 사람이 고를 몫
 """
@@ -91,7 +92,157 @@ def 후보들(앞, 옆, 키):
         짝들 = [[(0, 0), (1, 0)]] if no == 1 else [[(0, 0), (1, 1)], [(0, 1), (1, 0)]]
         for 짝 in 짝들:
             out.append(("두 덩어리", " + ".join(기둥(xs[i], ys[j]) for i, j in 짝)))
+    for 이름, 줄 in (("부위 타원뿔대", 사람형(앞, 옆, 키, 2)), ("부위 로프트", 사람형(앞, 옆, 키, 5)), ("층 타원", 층타원(앞, 옆, 키))):
+        if 줄:
+            out.append((이름, 줄))
     return out
+
+
+# ── 사람형 — 부위 나누기 (규칙) ────────────────────────────────────────────────
+# 부위 번호: 1 머리 · 2 몸통 · 3 팔.왼 · 4 팔.오 · 5 다리.왼 · 6 다리.오 · 7 하체(다리가 안 갈라질 때)
+# 왼 · 오 = 캐릭터 기준 (정면 -y 를 보니 +x 가 캐릭터 왼쪽)
+부위이름 = {1: "머리", 2: "몸통", 3: "팔.왼", 4: "팔.오", 5: "다리.왼", 6: "다리.오", 7: "하체"}
+세로부위 = {1, 2, 5, 6, 7}
+
+
+def _줄조각(row):
+    """한 줄의 연속 구간들 -> [(c0, c1)] (c1 제외)."""
+    d = np.diff(np.concatenate([[0], row.astype(np.int8), [0]]))
+    return list(zip(np.nonzero(d == 1)[0], np.nonzero(d == -1)[0]))
+
+
+def 부위나누기(앞):
+    """앞 마스크 -> 부위 번호 그림(같은 크기, 0 = 빈 곳). 사람형이 아니면 몸통 · 하체만 나온다.
+    다리 = 가운데 세로줄이 비는 줄들(가랑이 아래) · 머리 = 위 8~35% 에서 가운데 구간이 가장 좁은 줄(몸통 폭의 0.8 미만일 때) 위 ·
+    팔 = 가운데 구간에서 몸통 폭 밖으로 나온 곳과 가운데에 안 닿은 구간."""
+    H, W = 앞.shape
+    L = np.zeros(앞.shape, np.uint8)
+    rows = np.nonzero(앞.any(1))[0]
+    top, bot = rows.min(), rows.max()
+    키px = bot - top + 1
+    cx = int(np.median(np.nonzero(앞)[1]))
+    조각 = {r: _줄조각(앞[r]) for r in rows}
+    가운데 = lambda r: next(((a, b) for a, b in 조각[r] if a <= cx < b), None)
+    가랑이 = bot + 1                                                   # 이 줄부터 아래가 다리
+    for r in range(bot, top - 1, -1):
+        if 가운데(r) is None:
+            가랑이 = r
+        else:
+            break
+    if 가랑이 > bot - 0.05 * 키px:                                     # 다리 사이 틈이 5% 미만이면 안 갈라진 것
+        가랑이 = bot + 1
+    폭 = lambda r: (lambda g: g[1] - g[0] if g else 0)(가운데(r))
+    몸통줄 = [r for r in range(int(top + 0.35 * 키px), min(가랑이, bot + 1)) if 가운데(r)]
+    몸통폭 = np.median([폭(r) for r in 몸통줄]) if 몸통줄 else W
+    띠 = [r for r in range(int(top + 0.08 * 키px), int(top + 0.35 * 키px)) if 가운데(r)]
+    목 = min(띠, key=폭) if 띠 else top
+    if not 띠 or 폭(목) >= 0.8 * 몸통폭:
+        목 = top                                                       # 머리를 못 찾았다
+    반 = 몸통폭 / 2 * 1.1
+    for r in rows:
+        for a, b in 조각[r]:
+            if r < 목:
+                L[r, a:b] = 1
+            elif r >= 가랑이:
+                continue
+            elif a <= cx < b:
+                lo, hi = int(max(a, cx - 반)), int(min(b, cx + 반))
+                L[r, lo:hi] = 2
+                L[r, a:lo] = 4
+                L[r, hi:b] = 3
+            else:
+                L[r, a:b] = 3 if a > cx else 4
+    if 가랑이 <= bot:
+        for r in range(가랑이, bot + 1):
+            조 = sorted(조각[r], key=lambda g: abs((g[0] + g[1]) / 2 - cx))
+            for i, (a, b) in enumerate(조):
+                if i < 2:
+                    L[r, a:b] = 5 if (a + b) / 2 > cx else 6
+                else:
+                    L[r, a:b] = 3 if a > cx else 4
+    else:
+        L[(L == 2) & (np.arange(H)[:, None] > top + 0.55 * 키px)] = 7        # 다리가 안 갈라지면 아래는 하체
+    for 팔 in (3, 4):                                                   # 몸통 옆구리가 중앙값보다 넓은 줄의 부스러기는 팔이 아니다
+        lab, n = ndimage.label(L == 팔)
+        if n > 1:
+            큰 = 1 + np.argmax(np.bincount(lab.ravel())[1:])
+            L[(lab > 0) & (lab != 큰)] = 2
+    return L
+
+
+def _옆줄(옆, fo, z):
+    """높이 z(mm) 에서 옆 그림 한 줄의 (y 가운데, 깊이) mm. 그 줄이 비면 None."""
+    r = int(np.clip(round(fo.bot - z / fo.s - 0.5), 0, 옆.shape[0] - 1))
+    xs = np.nonzero(옆[r])[0]
+    if not len(xs):
+        return None
+    y0, y1 = (xs.min() - fo.c) * fo.s, (xs.max() + 1 - fo.c) * fo.s
+    return -(y0 + y1) / 2, y1 - y0
+
+
+def _로프트줄(ys, xs, 번호, 앞, 옆, fa, fo, 매듭):
+    """한 부위 화소 -> 로프트 DSL 한 토막. 세로 부위는 z 를, 팔은 앞 그림 주성분을 중심선으로."""
+    X, Z = (xs + 0.5 - fa.c) * fa.s, (fa.bot - ys - 0.5) * fa.s
+    Q = np.stack([X, Z], 1)
+    if 번호 in 세로부위:
+        a = np.array([0.0, 1.0])
+    else:
+        c = Q - Q.mean(0)
+        a = np.linalg.eigh(c.T @ c)[1][:, -1]
+    nrm = np.array([-a[1], a[0]])
+    t, q = Q @ a, Q @ nrm
+    lo, hi = t.min() - fa.s / 2, t.max() + fa.s / 2
+    띠 = max((hi - lo) / (2 * (매듭 - 1)), fa.s)
+    점, w, d = [], [], []
+    for tk in np.linspace(lo, hi, 매듭):
+        m = np.abs(t - tk) <= 띠
+        if not m.any():
+            m = np.abs(t - tk) <= np.abs(t - tk).min() + fa.s
+        qc, 너비 = (q[m].max() + q[m].min()) / 2, q[m].max() - q[m].min() + fa.s
+        x, z = tk * a + qc * nrm
+        옆값 = _옆줄(옆, fo, z)
+        if 번호 in 세로부위 and 옆값:
+            y, 깊이 = 옆값
+        else:                                                           # 팔은 옆에서 몸통과 겹친다 — 둥글다고 본다
+            y, 깊이 = (옆값[0] if 옆값 else 0.0), 너비
+        점.append([round(float(x), 1), round(float(y), 1), round(float(z), 1)])
+        w.append(round(float(너비), 1))
+        d.append(round(float(깊이), 1))
+    return '로프트(점=%s, w=%s, d=%s, 이름="%s")' % (점, w, d, 부위이름[번호])
+
+
+def 사람형(앞, 옆, 키, 매듭):
+    """부위마다 로프트 — 매듭 2 = 부위별 타원뿔대(A), 5 = 부위별 5 단면(B)."""
+    fa, fo = 틀(앞, 키), 틀(옆, 키)
+    L = 부위나누기(앞)
+    토막 = []
+    for 번호 in sorted(부위이름):
+        ys, xs = np.nonzero(L == 번호)
+        if len(ys) < 30:
+            continue
+        토막.append(_로프트줄(ys, xs, 번호, 앞, 옆, fa, fo, 매듭))
+    return " + ".join(토막) if 토막 else None
+
+
+def 층타원(앞, 옆, 키, 층수=60):
+    """부위 없이 높이마다 앞 구간 하나에 타원 단면 한 켜(C). 깊이 · y 는 같은 높이의 옆 한 줄."""
+    fa, fo = 틀(앞, 키), 틀(옆, 키)
+    rows = np.nonzero(앞.any(1))[0]
+    top, bot = rows.min(), rows.max() + 1
+    경계 = np.linspace(top, bot, 층수 + 1)
+    토막 = []
+    for r0, r1 in zip(경계[:-1], 경계[1:]):
+        r = int((r0 + r1) / 2)
+        z0, z1 = (fa.bot - r1) * fa.s, (fa.bot - r0) * fa.s + 0.01          # 켜끼리 살짝 겹친다
+        옆값 = _옆줄(옆, fo, (z0 + z1) / 2)
+        if not 옆값:
+            continue
+        y, 깊이 = 옆값
+        for a, b in _줄조각(앞[r]):
+            x, 너비 = ((a + b) / 2 - fa.c) * fa.s, (b - a) * fa.s
+            토막.append("로프트(점=[[%.1f, %.1f, %.2f], [%.1f, %.1f, %.2f]], w=[%.1f, %.1f], d=[%.1f, %.1f])"
+                      % (x, y, z0, x, y, z1, 너비, 너비, 깊이, 깊이))
+    return " + ".join(토막) if 토막 else None
 
 
 def 대보기(줄, 앞, 옆, 키):
@@ -125,11 +276,11 @@ def 검사():
     for 이름, 앞, 옆, 기대 in (("구", 원, 원, "구"), ("토러스", 도넛, 납작, "토러스")):
         후보, 동점 = 고르기(앞, 옆, 100.0)
         print("  %-6s 1순위 %-6s %.3f · 동점 %d · %s" % (이름, 후보[0]["이름"], 후보[0]["점수"], 동점, 후보[0]["줄"]))
-        assert 후보[0]["이름"] == 기대 and 동점 == 1 and 후보[0]["점수"] > 0.97, 후보[:2]
+        assert 후보[0]["이름"] == 기대 and 후보[0]["점수"] > 0.97, 후보[:2]      # 층 타원은 구멍도 켜마다 따라 그려 동점이 될 수 있다
     후보, 동점 = 고르기(네모, 네모, 100.0)
     print("  네모×네모 동점 %d — %s" % (동점, " · ".join(h["이름"] for h in 후보[:동점])))
     assert 동점 >= 3, "앞 · 옆이 네모면 상자 · 원기둥 · 45도 상자는 못 가른다"
-    print("그림 검사 통과 — 구 · 토러스는 혼자 고르고, 네모×네모는 동점으로 넘긴다")
+    print("그림 검사 통과 — 구 · 토러스는 1순위로 고르고, 네모×네모는 동점으로 넘긴다")
 
 
 if __name__ == "__main__":

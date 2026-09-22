@@ -7,6 +7,8 @@
 
     상자(w, d, h)          원기둥(r, h)          원뿔(r아래, r위, h)
     구(r)                  토러스(R, r, 축="z" | "x" | "y")
+    로프트(점=[[x,y,z], ...], w=[...], d=[...], 이름="팔.왼")   중심선을 따라 타원 단면을 잇는다.
+        단면은 중심선에 수직 · d 는 깊이(y) 방향 지름, w 는 그에 수직인 앞 그림 쪽 지름. 이름은 부위(= 키트 부품) 표시.
 
     원기둥(r=12, h=150, x=-30) + 원기둥(r=12, h=150, x=30)      두 덩어리
     토러스(R=48, r=24, 축="y")                                   구멍 (축 y = 정면에서 구멍이 보인다)
@@ -58,7 +60,38 @@ def 토러스(R, r, 축="z", x=0, y=0, z0=0, rz=0):
     return _놓기(t, x, y, z0, rz)
 
 
-어휘 = {f.__name__: f for f in (상자, 원기둥, 원뿔, 구, 토러스)}
+def 로프트(점, w, d, 이름="", 둘레=24):
+    P = np.asarray(점, np.float64)
+    w = np.maximum(np.asarray(w, np.float64), 0.2)
+    d = np.maximum(np.asarray(d, np.float64), 0.2)
+    n = len(P)
+    assert n >= 2 and len(w) == n and len(d) == n, "점 · w · d 개수가 같아야 한다 (2 이상)"
+    T = np.gradient(P, axis=0)
+    T /= np.maximum(np.linalg.norm(T, axis=1, keepdims=True), 1e-12)
+    Ew = np.cross([0.0, 1.0, 0.0], T)                                  # 앞 그림 안에서 중심선에 수직
+    bad = np.linalg.norm(Ew, axis=1) < 1e-6                            # 중심선이 깊이 방향이면 x 를 쓴다
+    Ew[bad] = [1.0, 0.0, 0.0]
+    Ew /= np.linalg.norm(Ew, axis=1, keepdims=True)
+    Ed = np.cross(T, Ew)
+    a = 2 * np.pi * np.arange(둘레) / 둘레
+    고리 = P[:, None] + (w[:, None, None] / 2) * np.cos(a)[None, :, None] * Ew[:, None]                      + (d[:, None, None] / 2) * np.sin(a)[None, :, None] * Ed[:, None]
+    V = np.concatenate([고리.reshape(-1, 3), P[[0, -1]]])
+    s, e, k = n * 둘레, n * 둘레 + 1, np.arange(둘레)
+    F = []
+    for i in range(n - 1):
+        a0, a1 = i * 둘레 + k, i * 둘레 + (k + 1) % 둘레
+        b0, b1 = a0 + 둘레, a1 + 둘레
+        F += [np.stack([a0, a1, b1], 1), np.stack([a0, b1, b0], 1)]
+    F += [np.stack([np.full(둘레, s), (k + 1) % 둘레, k], 1),
+          np.stack([np.full(둘레, e), (n - 1) * 둘레 + k, (n - 1) * 둘레 + (k + 1) % 둘레], 1)]
+    F = np.concatenate(F)
+    부피 = np.einsum("ij,ij->i", V[F[:, 0]], np.cross(V[F[:, 1]], V[F[:, 2]])).sum()
+    if 부피 < 0:
+        F = F[:, ::-1]
+    return M(m3.Mesh(vert_properties=np.ascontiguousarray(V, np.float32), tri_verts=np.ascontiguousarray(F, np.uint32)))
+
+
+어휘 = {f.__name__: f for f in (상자, 원기둥, 원뿔, 구, 토러스, 로프트)}
 
 
 def _값(n):
@@ -66,6 +99,8 @@ def _값(n):
         return n.value
     if isinstance(n, ast.UnaryOp) and isinstance(n.op, ast.USub):
         return -_값(n.operand)
+    if isinstance(n, (ast.List, ast.Tuple)):
+        return [_값(e) for e in n.elts]
     raise ValueError("숫자나 문자열만 된다: %s" % ast.dump(n))
 
 
@@ -95,7 +130,8 @@ def 검사():
     줄들 = ["원기둥(r=12, h=150, x=-30) + 원기둥(r=12, h=150, x=30)",
           '토러스(R=48, r=24, 축="y")',
           "상자(w=90, d=90, h=150) - 상자(w=45, d=45, h=150, x=22.5, y=22.5)",
-          "원뿔(r아래=52, r위=10, h=150) + 구(r=20, z0=135)"]
+          "원뿔(r아래=52, r위=10, h=150) + 구(r=20, z0=135)",
+          '로프트(점=[[0,0,0],[0,0,60],[0,0,120]], w=[40,20,30], d=[30,15,20], 이름="몸통") + 로프트(점=[[15,0,100],[60,0,110]], w=[10,8], d=[10,8], 이름="팔.왼")']
     for 줄 in 줄들:
         V, F = 실행(줄)
         m = trimesh.Trimesh(V, F, process=False)
