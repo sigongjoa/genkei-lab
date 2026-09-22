@@ -80,6 +80,7 @@ input[type=range]{width:100%;accent-color:var(--blue)}
   <div class="kv"><span>정점 · 면</span><b id="iVF">-</b></div>
   <div class="kv"><span>해시 (화면)</span><span class="hash" id="iH">-</span></div>
   <div class="kv"><span>마지막 획</span><b id="iLast">-</b></div>
+  <div class="kv"><span>붓 엔진</span><b id="iEng">-</b></div>
   <div class="ttl"><span>재생 검증</span><span>스크립트 = 화면?</span></div>
   <div class="kv"><span>스크립트 재생 해시</span><span class="hash" id="iSH">-</span></div>
   <div class="kv"><span>판정</span><span id="iOK">-</span></div>
@@ -137,6 +138,7 @@ function 메시싣기(m, 맞춤=false){
   geo.setIndex(m.F);
   geo.computeVertexNormals(); geo.computeBoundingSphere();
   $("iVF").textContent = (m.V.length/3).toLocaleString()+" · "+(m.F.length/3).toLocaleString();
+  if (m.엔진) $("iEng").textContent = m.엔진;
   상태(m);
   if (맞춤) 화면맞춤();
 }

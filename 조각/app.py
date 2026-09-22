@@ -16,6 +16,11 @@ import time
 import numpy as np
 
 import engine as E
+try:                                   # C++ 엔진이 있으면 그것을 쓴다 (같은 결과 · 수백 배 빠르다 — engine_cpp.py 검사)
+    import engine_cpp as EC
+    엔진, 엔진이름 = EC.조각C, "C++"
+except OSError:
+    엔진, 엔진이름 = E.조각, "파이썬"
 
 HERE = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
 
@@ -29,13 +34,13 @@ class API:
     def _새엔진(self, V=None, F=None):
         if V is None:
             V, F = E.기본메시(세분=self.기본.get("세분", 6))
-        self.e = E.조각(V, F)
+        self.e = 엔진(V, F)
         self.전체 = []                    # 타임라인 전체 (되감아도 남는다)
         self.k = 0                        # 지금 보이는 단계
 
     def _메시(self):
         return {"V": np.round(self.e.V, 5).ravel().tolist(), "F": self.e.F.ravel().tolist(),
-                "해시": self.e.해시(), "k": self.k, "n": len(self.전체)}
+                "해시": self.e.해시(), "k": self.k, "n": len(self.전체), "엔진": 엔진이름}
 
     def 새구(self, 세분=6):
         self.기본 = {"종류": "구", "세분": int(세분)}
@@ -71,7 +76,8 @@ class API:
         for p in 점목록:
             바뀐 |= set(self.e.점_더하기(p))
         idx = sorted(바뀐)
-        return {"idx": idx, "pos": np.round(self.e.V[idx], 5).ravel().tolist()}
+        pos = self.e.위치(idx) if hasattr(self.e, "위치") else self.e.V[idx]
+        return {"idx": idx, "pos": np.round(pos, 5).ravel().tolist()}
 
     def 획_끝(self):
         기록 = self.e.획_끝()
@@ -92,16 +98,23 @@ class API:
     # ------------------------------------------------------------ 타임라인
     def 되감기(self, k):
         k = int(max(0, min(k, len(self.전체))))
-        self.e = E.재생(self.전체[:k], self.e.V0, self.e.F)
+        if hasattr(self.e, "처음으로"):             # C++ — 엔진을 다시 짓지 않고 처음으로 돌려 다시 튼다
+            self.e.처음으로(); self.e.저널 = []
+            for 획 in self.전체[:k]:
+                E.재생한획(self.e, 획)
+        else:
+            self.e = E.재생(self.전체[:k], self.e.V0, self.e.F)
         self.k = k
         return self._메시()
 
     def 검증(self):
         """지금 단계까지를 **새 엔진**으로 스크립트 재생 -> 화면에서 칠한 결과와 해시 비교."""
         t = time.time()
-        r = E.재생(json.loads(json.dumps(self.전체[:self.k])), self.e.V0, self.e.F)
+        r = 엔진(self.e.V0, self.e.F)                # 새 엔진 — 저널만 보고 처음부터
+        for 획 in json.loads(json.dumps(self.전체[:self.k])):
+            E.재생한획(r, 획)
         return {"화면": self.e.해시(), "스크립트": r.해시(), "같음": r.해시() == self.e.해시(),
-                "단계": self.k, "초": round(time.time() - t, 2)}
+                "단계": self.k, "초": round(time.time() - t, 2), "엔진": 엔진이름}
 
     # ------------------------------------------------------------ 파일
     def 저장(self):
