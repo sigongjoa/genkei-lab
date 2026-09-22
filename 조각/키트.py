@@ -105,7 +105,7 @@ def _원통(핀, r, 반):
 
 def 얇은몫(V, F, 칸=0.27):
     """0.8 mm 보다 얇은 부피의 몫 — 칸 0.27 mm 복셀을 3×3×3 십자로 열었을 때 사라지는 몫."""
-    g = trimesh.Trimesh(V, F, process=False).voxelized(칸).fill().matrix
+    g = trimesh.Trimesh(V, F, process=False).voxelized(칸, max_iter=20).fill().matrix      # 큰 면(150 mm)은 칸까지 쪼개는 데 10 번이 넘는다
     if not g.any():
         return 0.0
     열린 = ndimage.binary_opening(g, structure=ndimage.generate_binary_structure(3, 1))
