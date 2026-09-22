@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>genkei 와이어프레임</title>
+<style>
+:root{--bg:#f2f2f7;--card:rgba(255,255,255,.9);--line:#e5e5ea;--ink:#1c1c1e;--sub:#8e8e93;--blue:#007aff;--green:#34c759;--red:#ff3b30;--wire:#c7c7cc}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);font-family:"Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif;color:var(--ink);user-select:none}
+.glass{position:fixed;background:var(--card);backdrop-filter:blur(18px);border:1px solid #fff;border-radius:18px;box-shadow:0 8px 30px rgba(0,0,0,.08)}
+.top{left:14px;right:14px;top:12px;height:50px;display:flex;align-items:center;gap:10px;padding:0 14px;z-index:5}
+.logo{font-weight:700;font-size:17px}.logo small{font-weight:400;color:var(--sub);font-size:12px;margin-left:6px}
+.sp{flex:1}
+.steps{display:flex;gap:4px}
+.step{font-size:13px;padding:6px 11px;border-radius:10px;color:var(--sub);cursor:pointer}
+.step.on{background:var(--ink);color:#fff}
+.btn{font-size:13px;padding:8px 14px;border-radius:10px;background:#f2f2f7;border:0;cursor:pointer;color:var(--ink);font-family:inherit}
+.btn:hover{background:#e8e8ee}.btn.p{background:var(--blue);color:#fff}.btn.on{background:var(--ink);color:#fff}
+.scr{display:none}.scr.on{display:block}
+.center{position:fixed;left:50%;top:54%;transform:translate(-50%,-50%);width:760px;padding:28px}
+h2{margin:0 0 6px;font-size:22px}.lead{color:var(--sub);font-size:14px;margin:0 0 20px}
+.drop{border:2px dashed var(--wire);border-radius:16px;height:230px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--sub);gap:8px;font-size:14px;background:#fff}
+.drop b{font-size:40px;color:var(--wire)}
+.opts{display:flex;gap:14px;margin:18px 0;font-size:13px;align-items:center}
+.chip{padding:6px 11px;border-radius:999px;background:#fff;border:1px solid var(--line);font-size:12px}
+.chip.on{border-color:var(--blue);color:var(--blue)}
+.foot{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th{text-align:left;color:var(--sub);font-weight:400;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:8px;border-bottom:1px solid #f0f0f3}
+.src{font-size:11px;padding:2px 7px;border-radius:6px;background:#f2f2f7;color:var(--sub)}
+.src.ai{background:#eaf2ff;color:var(--blue)}
+.two{display:grid;grid-template-columns:260px 1fr;gap:20px}
+.art{background:#fff;border:1px solid var(--line);border-radius:14px;height:330px;position:relative}
+.art .bx{position:absolute;border:1.5px solid var(--blue);border-radius:6px;font-size:10px;color:var(--blue);padding:1px 4px}
+/* 다듬기 */
+.left{left:14px;top:74px;width:210px;bottom:170px;padding:14px;overflow-y:auto}
+.right{right:14px;top:74px;width:320px;bottom:170px;padding:14px;overflow-y:auto}
+.ttl{font-size:13px;color:var(--sub);margin:4px 2px 8px}
+.part{padding:9px 10px;border-radius:10px;font-size:14px;cursor:pointer;display:flex;justify-content:space-between}
+.part span{font-size:11px;color:var(--sub)}
+.part.on{background:var(--ink);color:#fff}.part.on span{color:#bbb}
+#vp{position:fixed;left:238px;right:348px;top:74px;bottom:170px}
+#vp svg{width:100%;height:calc(100% - 96px);margin-top:30px}
+.pt{fill:#fff;stroke:#8e8e93;stroke-width:1.5;cursor:pointer}
+.pt:hover{fill:#f2f7ff}.pt.on{fill:#dbe9ff;stroke:var(--blue);stroke-width:2.5}
+.vpnote{position:absolute;left:0;right:0;top:6px;text-align:center;font-size:12px;color:var(--sub)}
+.say{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);width:min(520px,90%);display:flex;gap:6px}
+.say input{flex:1;border:1px solid var(--line);border-radius:12px;padding:10px 12px;font:inherit;font-size:13px;background:#fff}
+.cat{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px}
+.ci{background:#fff;border:1px solid var(--line);border-radius:12px;padding:6px;font-size:11px;text-align:center;cursor:pointer}
+.ci i{display:block;height:54px;border-radius:8px;background:repeating-linear-gradient(45deg,#f2f2f7 0 6px,#fafafa 6px 12px);margin-bottom:4px}
+.ci.on{border-color:var(--blue);color:var(--blue);box-shadow:0 0 0 1px var(--blue)}
+.ci.ai::after{content:"AI 추천";display:block;font-size:9px;color:var(--blue)}
+.row{display:flex;justify-content:space-between;font-size:13px;margin:14px 2px 2px}
+.row b{font-variant-numeric:tabular-nums}
+.def{font-size:11px;color:var(--sub);margin:0 2px}
+input[type=range]{width:100%;accent-color:var(--blue)}
+.tl{left:14px;right:14px;bottom:12px;height:146px;padding:10px 14px}
+.cards{display:flex;gap:6px;overflow-x:auto;height:100px;margin-top:6px}
+.cd{flex:none;width:170px;border-radius:12px;background:#fff;border:1px solid var(--line);padding:8px;font-size:11px;line-height:1.5}
+.cd b{font-size:12px;display:block}
+.cd.said{border-color:#ffcc00}
+.odd{position:absolute;right:8px;top:0;background:#fff;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.alts{position:absolute;left:50%;bottom:62px;transform:translateX(-50%);display:none;gap:8px;background:var(--card);backdrop-filter:blur(18px);padding:10px;border-radius:16px;box-shadow:0 8px 30px rgba(0,0,0,.1)}
+.alts.on{display:flex}
+.alt{width:128px;background:#fff;border:1px solid var(--line);border-radius:12px;padding:6px;font-size:11px;cursor:pointer;line-height:1.4}
+.alt svg{width:100%;height:120px}.alt svg *{fill:#fff;stroke:#aeaeb2;stroke-width:3}.alt svg .hl{fill:#dbe9ff;stroke:var(--blue)}
+.alt.on{border-color:var(--blue);box-shadow:0 0 0 1px var(--blue)}.alt b{display:block;font-size:12px}.alt span{color:var(--sub)}
+.mono{font-family:Consolas,monospace;font-size:12px;white-space:pre-wrap;word-break:break-all;line-height:1.5}
+#aip{display:none}
+body.ai #aip{display:block}body.ai .right .human{display:none}
+/* 판정 */
+.q{display:flex;justify-content:space-between;align-items:center;padding:9px 4px;border-bottom:1px solid #f0f0f3;font-size:14px}
+.q small{color:var(--sub);display:block;font-size:11px}
+.ok{color:var(--green);font-weight:700}
+.w{display:flex;gap:10px;padding:8px 2px;border-bottom:1px solid #f0f0f3;font-size:13px}.w i{font-style:normal;width:18px;color:var(--sub)}.w.done i{color:var(--green)}.w small{display:block;color:var(--sub);font-size:11px}.w.fix small{color:#c77c00}.bad{color:var(--red);font-weight:700}
+.boom{background:#fff;border:1px solid var(--line);border-radius:14px;height:330px}
+.warn{font-size:11px;color:var(--sub);margin-top:10px}
+.kit{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.kc{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px;font-size:13px;line-height:1.6}
+.kc b{font-size:15px;display:block;margin-bottom:4px}
+</style></head>
+<body>
+<div class="glass top">
+  <div class="logo">genkei<small>와이어프레임 · 숫자는 예시</small></div>
+  <div class="sp"></div>
+  <div class="steps" id="steps"></div>
+  <div class="sp"></div>
+  <button class="btn" id="aibtn" title="같은 상태를 AI 쪽 수치로">AI 가 보는 것</button>
+</div>
+
+<!-- 1 원화 넣기 -->
+<div class="scr on" data-s="0"><div class="glass center">
+  <h2>그림 한 장이면 됩니다</h2>
+  <p class="lead">좋아하는 캐릭터 그림을 넣으세요. 나머지는 AI 가 합니다 — 부위 나누기부터 출력 검사까지.</p>
+  <div class="drop"><b>＋</b>원화를 여기에 끌어다 놓기<span style="font-size:12px">PNG · JPG · 정면 한 장이면 되고, 옆 · 뒤가 있으면 더 닮습니다</span></div>
+  <div class="opts">키 <span class="chip">100 mm</span><span class="chip on">150 mm</span><span class="chip">200 mm</span></div>
+  <div class="foot"><button class="btn p" data-go="1">만들기 →</button></div>
+</div></div>
+
+<!-- 2 AI 가 만드는 중 -->
+<div class="scr" data-s="1"><div class="glass center" style="width:900px">
+  <h2>AI 가 만드는 중</h2>
+  <p class="lead">사람이 할 일은 없습니다. AI 가 스스로 그림과 대 보고, 출력 검사에서 떨어지면 스스로 고칩니다.</p>
+  <div class="two">
+    <div class="art"><div class="bx" style="left:88px;top:14px;width:84px;height:70px">머리</div>
+      <div class="bx" style="left:80px;top:90px;width:100px;height:100px">몸</div>
+      <div class="bx" style="left:28px;top:94px;width:46px;height:110px">팔</div>
+      <div class="bx" style="left:186px;top:94px;width:46px;height:110px">팔</div>
+      <div class="bx" style="left:84px;top:196px;width:92px;height:106px">다리</div>
+      <div class="bx" style="left:60px;top:306px;width:140px;height:18px">받침</div></div>
+    <div id="work"></div>
+  </div>
+  <div class="foot"><button class="btn p" data-go="2" id="seebtn">결과 보기 →</button></div>
+</div></div>
+
+<!-- 3 다듬기 -->
+<div class="scr" data-s="2">
+  <div class="glass left"><div class="ttl">부위</div><div id="parts"></div></div>
+  <div id="vp"><div class="vpnote">뷰포트 (사람용 · 실제 앱은 3D) — 고칠 곳을 콕 찍으세요</div>
+    <svg viewBox="0 0 300 420" id="fig">
+      <ellipse class="pt" data-p="받침" cx="150" cy="392" rx="95" ry="16"/>
+      <rect class="pt" data-p="다리.왼" x="112" y="238" width="34" height="140" rx="14"/>
+      <rect class="pt" data-p="다리.오" x="154" y="238" width="34" height="140" rx="14"/>
+      <rect class="pt" data-p="팔.왼" x="62" y="118" width="30" height="118" rx="14"/>
+      <rect class="pt" data-p="팔.오" x="208" y="118" width="30" height="118" rx="14"/>
+      <rect class="pt" data-p="몸" x="98" y="108" width="104" height="138" rx="26"/>
+      <circle class="pt" data-p="머리" cx="150" cy="62" r="46"/>
+      <path class="pt" data-p="머리" d="M104 58 Q108 6 150 10 Q196 6 198 58 Q176 34 150 38 Q124 34 104 58Z"/>
+    </svg>
+    <button class="btn odd" id="oddbtn">이상해요 — 다른 해석 보기</button>
+    <div class="alts" id="alts"></div>
+    <div class="say"><input id="sayin" placeholder="말로 고치기 — 예: 왼팔 조금 더 굵게"><button class="btn" id="saybtn">보내기</button></div>
+  </div>
+  <div class="glass right">
+    <div class="human">
+      <div class="ttl" id="cattl">카탈로그</div><div class="cat" id="cat"></div>
+      <div class="ttl" style="margin-top:16px">고칠 수 있는 것</div><div id="prm"></div>
+      <div class="foot"><button class="btn" id="reset">AI 기본값으로</button></div>
+    </div>
+    <div id="aip"><div class="ttl">AI 가 보는 것 — 도면 · DSL · 점수</div><div class="mono" id="aitxt"></div></div>
+  </div>
+  <div class="glass tl"><div style="display:flex;align-items:center;gap:8px;font-size:13px"><b>타임라인</b><span style="color:var(--sub)">고친 것마다 한 장 (실제 앱: 누르면 그때로 · 다른 갈래는 남는다)</span><span class="sp"></span><button class="btn p" data-go="3">받기 →</button></div>
+    <div class="cards" id="cards"></div></div>
+</div>
+
+<!-- 4 받기 -->
+<div class="scr" data-s="3"><div class="glass center" style="width:820px">
+  <h2>키트가 준비됐어요</h2>
+  <p class="lead" id="kitlead"></p>
+  <div class="two" style="grid-template-columns:1fr 1fr">
+    <div id="qs"></div>
+    <div class="kit" style="grid-template-columns:1fr">
+      <div class="kc"><b>파일로 받기</b>부품 STL 8 개 · 핀 · 분해도 PDF<br>집 프린터나 아는 곳에서 출력</div>
+      <div class="kc"><b>출력 맡기기</b>업체에 파일을 보내고 출력물을 받습니다<br><span style="color:var(--sub)">레진 · FDM 선택</span></div>
+    </div>
+  </div>
+  <p class="warn">도색은 이 앱 범위 밖 (도색 기계는 따로). 저작권 — 미해결.</p>
+  <div class="foot"><button class="btn" data-go="2">← 다듬기</button><button class="btn" data-go="0">새로 만들기</button></div>
+</div></div>
+
+<script>
+const 이름 = ["원화 넣기", "AI 가 만드는 중", "다듬기 (원하면)", "받기"];
+// 카탈로그: 부위 종류 → 항목 → [파라미터, 단위, 최소, 최대, AI 기본값]
+const 카탈로그 = {
+  머리: {"앞머리 깐 것": [["이마 드러남", "mm", 0, 20, 8], ["볼륨", "%", 50, 150, 100], ["가르마 위치", "°", -40, 40, 0]],
+         "포마드": [["넘긴 각도", "°", 0, 60, 30], ["덩어리 수", "개", 3, 12, 6], ["옆 길이", "mm", 2, 15, 6]],
+         "파마": [["컬 반지름", "mm", 2, 10, 4], ["컬 수", "개", 10, 60, 30], ["전체 부피", "%", 80, 160, 120]]},
+  몸: {"기본형": [["어깨 폭", "mm", 30, 60, 42], ["허리", "mm", 20, 40, 28], ["가슴 깊이", "mm", 15, 35, 22]],
+       "갑주형": [["판 두께", "mm", 1, 5, 2], ["어깨 갑 크기", "%", 80, 160, 120], ["모서리 챔퍼", "mm", 0, 3, 1]],
+       "비늘형": [["비늘 크기", "mm", 1, 6, 3], ["배 비늘 줄", "개", 4, 14, 8], ["등 가시", "개", 0, 10, 0]]},
+  팔: {"원기둥": [["길이", "mm", 30, 70, 52], ["둘레", "mm", 20, 50, 32], ["팔꿈치 위치", "%", 40, 60, 50]],
+       "근육형": [["길이", "mm", 30, 70, 52], ["이두 볼록", "%", 0, 100, 40], ["손목 둘레", "mm", 12, 30, 18]],
+       "기계팔": [["길이", "mm", 30, 70, 52], ["마디 수", "개", 2, 5, 3], ["관절 반지름", "mm", 3, 8, 4]]},
+  다리: {"원기둥": [["길이", "mm", 50, 90, 70], ["둘레", "mm", 25, 60, 38], ["무릎 위치", "%", 40, 60, 50]],
+         "역관절": [["길이", "mm", 50, 90, 70], ["꺾임 각", "°", 10, 60, 35], ["발가락 수", "개", 2, 5, 3]],
+         "장갑 다리": [["길이", "mm", 50, 90, 70], ["정강이 판", "%", 80, 150, 110], ["발 폭", "mm", 15, 40, 24]]},
+  받침: {"원형": [["지름", "mm", 40, 100, 70], ["두께", "mm", 3, 10, 5]],
+         "사각": [["폭", "mm", 40, 100, 70], ["깊이", "mm", 30, 80, 50]],
+         "없음 (자립)": []},
+};
+const 부위들 = ["머리", "몸", "팔.왼", "팔.오", "다리.왼", "다리.오", "받침"];
+const 종류 = p => p.split(".")[0];
+const AI골름 = {머리: "포마드", 몸: "기본형", 팔: "원기둥", 다리: "원기둥", 받침: "원형"};
+const 출처 = {머리: "정면 실측", 몸: "정면 실측 · 깊이는 옆판 추정", 팔: "정면 실측", 다리: "정면 실측", 받침: "사양 (키 150)"};
+
+const 상태 = {};           // 부위 → {항목, 값}
+for (const p of 부위들) { const h = AI골름[종류(p)]; 상태[p] = {항목: h, 값: 카탈로그[종류(p)][h].map(x => x[4])}; }
+let 지금 = "머리", 화면 = 0;
+const 카드 = [];
+
+const $ = s => document.querySelector(s);
+const 줄 = p => { const s = 상태[p], 칸 = 카탈로그[종류(p)][s.항목];
+  return `${p} = ${s.항목}(${칸.map((x, i) => `${x[0]}=${s.값[i]}${x[1]}`).join(", ")})`; };
+
+function 가기(i) {
+  화면 = i;
+  document.querySelectorAll(".scr").forEach(e => e.classList.toggle("on", +e.dataset.s === i));
+  if (i === 1) 돌리기();
+  if (i === 3) 판정();
+  $("#steps").innerHTML = 이름.map((n, k) => `<div class="step ${k === i ? "on" : ""}" data-go="${k}">${k + 1} ${n}</div>`).join("");
+}
+// AI 가 혼자 도는 단계 — [이름, 결과, 스스로 고쳤나]
+const 작업 = [
+  ["종류 판단", "사람형 (AI)"],
+  ["부위 나누기", "7 부위 — 실루엣 거리장 분수령"],
+  ["이름 · 뼈대", "몸 ← 머리 · 팔 둘 · 다리 둘 · 받침 (LLM 은 이름만)"],
+  ["카탈로그 고르기", "머리 = 포마드 · 몸 = 기본형 · 팔 · 다리 = 원기둥"],
+  ["치수 재기", "정면 실측 · 깊이는 옆판 추정 — 숫자는 그림에서"],
+  ["그림과 대 보기", "머리 실루엣 0.62 낮음 → 부위 다시 나눔 (앞머리를 머리에 합침) → 0.88", 1],
+  ["출력 검사 Q1~Q6", "Q3 머리카락 끝 1.6% 너무 얇음 → 두께 0.6 → 1.0 mm → 통과", 1],
+];
+let 작업끝 = false;
+function 돌리기() {
+  if (작업끝) return;
+  let k = 0;
+  const 그림 = () => {
+    $("#work").innerHTML = 작업.map((w, i) => `<div class="w ${i < k ? "done" : ""} ${i < k && w[2] ? "fix" : ""}"><i>${i < k ? "✓" : i === k ? "…" : ""}</i><div>${w[0]}<small>${i < k ? w[1] + (w[2] ? " · 스스로 고침" : "") : ""}</small></div></div>`).join("");
+    $("#seebtn").disabled = k < 작업.length; $("#seebtn").style.opacity = $("#seebtn").disabled ? .4 : 1;
+  };
+  그림();
+  const t = setInterval(() => { k++; 그림(); if (k >= 작업.length) { clearInterval(t); 작업끝 = true; } }, 450);
+}
+function 그리기() {
+  $("#parts").innerHTML = 부위들.map(p => `<div class="part ${p === 지금 ? "on" : ""}" data-p="${p}">${p}<span>${상태[p].항목}</span></div>`).join("");
+  document.querySelectorAll(".pt").forEach(e => e.classList.toggle("on", e.dataset.p === 지금));
+  const k = 종류(지금), s = 상태[지금];
+  $("#cattl").textContent = `카탈로그 — ${지금}`;
+  $("#cat").innerHTML = Object.keys(카탈로그[k]).map(h => `<div class="ci ${h === s.항목 ? "on" : ""} ${h === AI골름[k] ? "ai" : ""}" data-h="${h}"><i></i>${h}</div>`).join("");
+  const 칸 = 카탈로그[k][s.항목];
+  $("#prm").innerHTML = 칸.length ? 칸.map((x, i) => `<div class="row"><span>${x[0]}</span><b>${s.값[i]} ${x[1]}</b></div>
+    <input type="range" min="${x[2]}" max="${x[3]}" value="${s.값[i]}" data-i="${i}"><div class="def">AI 기본값 ${x[4]} ${x[1]}</div>`).join("")
+    : `<div class="def">받침 없이 서야 합니다 — AI 가 출력 검사 Q6 으로 확인</div>`;
+  $("#cards").innerHTML = 카드.length ? 카드.map((c, i) => `<div class="cd ${c.말 ? "said" : ""}"><b>${i + 1}. ${c.말 ? "말" : c.p}</b>${c.말 ? c.말 + "<br><span style='color:#8e8e93'>→ AI 가 DSL 한 줄로 (다음 단계)</span>" : c.dsl}</div>`).join("")
+    : `<div class="def" style="padding:8px">아직 고친 것 없음 — AI 기본값 그대로</div>`;
+  $("#aitxt").textContent = Object.entries({
+    DSL: 부위들.map(줄),
+    숫자_출처: 부위들.map(p => `${p}: ${출처[종류(p)]}`),
+    저널: 카드.map(c => c.말 ? {말: c.말} : {dsl: c.dsl, 부위밖_변위_mm: 0}),
+    점수_예시: {IoU_3D: 0.81, 실루엣_정면: 0.93, 최악_부위: "머리 0.62", 조립성: "Q1~Q6 통과 (Q3 은 AI 가 고침)"},
+  }).map(([k, v]) => `${k}\n${JSON.stringify(v, null, 1)}`).join("\n\n");
+}
+// 이상하면 고르기 — AI 가 다른 해석 몇 개를 만들어 두고, 사람은 썸네일에서 고르기만 한다
+const 후보 = [
+  {이름: "지금 (AI 1순위)", 설명: "그림 대조 0.88", 부위: []},
+  {이름: "머리카락 따로", 설명: "0.86 · 머리카락을 별도 부품으로", 부위: ["머리"], dsl: "부위.나누기(머리 → 머리 + 머리카락)"},
+  {이름: "팔 · 몸 한 덩어리", 설명: "0.84 · 소매가 몸에 붙은 옷", 부위: ["팔.왼", "팔.오", "몸"], dsl: "부위.합치기(팔.왼 + 몸 + 팔.오)"},
+  {이름: "받침 없이 서기", 설명: "0.80 · 자립 Q6 여유 2 mm", 부위: ["받침"], dsl: "받침 = 없음 (자립)"},
+];
+let 고른후보 = 0;
+function 후보그리기() {
+  const 몸체 = $("#fig").innerHTML;
+  $("#alts").innerHTML = 후보.map((c, i) => `<div class="alt ${i === 고른후보 ? "on" : ""}" data-alt="${i}"><svg viewBox="0 0 300 420">${몸체.replace(/class="pt( on)?" data-p="([^"]+)"/g,
+    (m, on, p) => `data-q="${p}" class="${c.부위.includes(p) ? "hl" : ""}"`)}</svg><b>${c.이름}</b><span>${c.설명}</span></div>`).join("");
+}
+function 기록(p) { 카드.push({p, dsl: 줄(p)}); 그리기(); }
+
+const Q = [["Q1 닫힌 메시", "부품마다 구멍 없음"], ["Q2 관절면 반지름 ≥ 3 mm", "핀 자리"],
+  ["Q3 0.8 mm 미만 부피 < 1%", "AI 가 머리카락 끝을 1.0 mm 로 고친 뒤 0.4%"], ["Q4 부품 ≤ 15", "8 개"],
+  ["Q5 이웃과 닿음", "떠 있는 부품 없음"], ["Q6 자립", "무게중심 투영이 받침 안 · 여유 6 mm"]];
+function 판정() {
+  $("#kitlead").textContent = 카드.length
+    ? `150 mm · 부품 8 · 다듬은 ${카드.length} 곳까지 넣고 AI 가 출력 검사를 다시 돌렸습니다 — 모두 통과.`
+    : "150 mm · 부품 8 · 출력 검사 여섯 모두 통과.";
+  $("#qs").innerHTML = Q.map(q => `<div class="q"><div>${q[0]}<small>${q[1]}</small></div><span class="ok">통과</span></div>`).join("")
+    + `<p class="warn">떨어지면 AI 가 고치고 다시 검사합니다. 키 150 mm · FDM 0.4 기준 (원화3d/실험_20260921/조립성.py, Q6 은 새로).</p>`;
+}
+
+document.addEventListener("click", e => {
+  const t = e.target.closest("[data-go],[data-p],[data-h],[data-alt]"); if (!t || t.disabled) return;
+  if (t.dataset.alt !== undefined) { 고른후보 = +t.dataset.alt; const c = 후보[고른후보];
+    if (c.dsl) 카드.push({p: "후보 고름", dsl: `${c.이름} — ${c.dsl}`});
+    if (c.부위.includes("받침")) 상태["받침"] = {항목: "없음 (자립)", 값: []};
+    $("#alts").classList.remove("on"); 그리기(); return; }
+  if (t.dataset.go !== undefined) return 가기(+t.dataset.go);
+  if (t.dataset.p) { 지금 = t.dataset.p; return 그리기(); }
+  if (t.dataset.h) { const k = 종류(지금); 상태[지금] = {항목: t.dataset.h, 값: 카탈로그[k][t.dataset.h].map(x => x[4])}; 기록(지금); }
+});
+document.addEventListener("input", e => { if (e.target.type !== "range") return;
+  상태[지금].값[+e.target.dataset.i] = +e.target.value; e.target.previousElementSibling.querySelector("b").textContent =
+    e.target.value + " " + 카탈로그[종류(지금)][상태[지금].항목][+e.target.dataset.i][1]; });
+document.addEventListener("change", e => { if (e.target.type === "range") 기록(지금); });
+$("#oddbtn").onclick = () => { 후보그리기(); $("#alts").classList.toggle("on"); };
+$("#reset").onclick = () => { const k = 종류(지금), s = 상태[지금]; s.값 = 카탈로그[k][s.항목].map(x => x[4]); 기록(지금); };
+const 말하기 = () => { const v = $("#sayin").value.trim(); if (!v) return; 카드.push({말: v}); $("#sayin").value = ""; 그리기(); };
+$("#saybtn").onclick = 말하기; $("#sayin").onkeydown = e => { if (e.key === "Enter") 말하기(); };
+$("#aibtn").onclick = () => { document.body.classList.toggle("ai"); $("#aibtn").classList.toggle("on"); if (화면 !== 2) 가기(2); };
+
+그리기(); 가기(0);
+</script>
+</body></html>
