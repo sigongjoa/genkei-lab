@@ -3,6 +3,7 @@
 
     python app.py                 창을 띄운다
     python app.py 점검             창 없이 API 를 한 바퀴 돈다 (획 · 되감기 · 검증 · 저장)
+    조각.exe 만들기 앞.png 옆.png 키mm 폴더   창 없이 그림 두 장 -> 폴더/{메시.stl, 저널.json, 결과.json}
     pyinstaller 조각.spec          -> dist/조각.exe
 
 화면(ui/index.html · three.js)은 마우스를 **모델 위 세계 좌표**로 바꿔 아래 API 를 부른다.
@@ -16,6 +17,7 @@ import time
 import numpy as np
 
 import dsl as D
+import 그림 as 그
 import engine as E
 import remesh as RM
 try:                                   # C++ 엔진이 있으면 그것을 쓴다 (같은 결과 · 수백 배 빠르다 — engine_cpp.py 검사)
@@ -116,16 +118,30 @@ class API:
         out["알림"] = "리메시 %.2f mm — 정점 %d · %.1f초" % (float(간격), len(V), time.time() - t)
         return out
 
-    def DSL(self, 줄):
-        """DSL 한 줄로 메시를 새로 짓는다 (리메시처럼 한 칸). AI 는 붓 대신 이걸 부른다."""
+    def DSL(self, 줄, 덧=None):
+        """DSL 한 줄로 메시를 새로 짓는다 (리메시처럼 한 칸). AI 는 붓 대신 이걸 부른다. 덧 = 저널에 같이 적을 것."""
         self._갈래()
         V, F = D.실행(줄)
         self.e = 엔진(V, F)
         기록 = {"붓": "DSL", "줄": 줄, "반지름": 0.0, "세기": 0.0, "대칭": False, "반전": False,
-               "점": [], "자국수": 0, "정점": int(len(V)), "해시": self.e.해시()}
+               "점": [], "자국수": 0, "정점": int(len(V)), "해시": self.e.해시(), **(덧 or {})}
         self.전체.append(기록)
         self.k = len(self.전체)
         return self._메시()
+
+    def 그림에서(self, 앞경로, 옆경로, 키=150.0):
+        """그림 두 장 -> 카탈로그 후보를 그림과 대 보고 1순위를 DSL 한 칸으로. 동점이면 사람이 고를 몫으로 남긴다."""
+        후보, 동점 = 그.고르기(그.마스크(앞경로), 그.마스크(옆경로), float(키))
+        self.후보, self.동점 = 후보, 동점
+        out = self.DSL(후보[0]["줄"], {"출처": "그림", "그림": [os.path.basename(앞경로), os.path.basename(옆경로)], "키": float(키),
+                                     "점수": 후보[0]["점수"], "동점": 동점})
+        out["후보"], out["동점"] = 후보, 동점
+        return out
+
+    def 후보고르기(self, i):
+        """「이상해요」에서 고른 후보 — 그것도 저널 한 칸."""
+        h = self.후보[int(i)]
+        return self.DSL(h["줄"], {"출처": "고름", "고른 후보": int(i), "점수": h["점수"]})
 
     # ------------------------------------------------------------ 획
     def 획_시작(self, 붓, 반지름, 세기, 대칭, 반전):
@@ -244,6 +260,18 @@ def 점검():
     print("점검 통과 — 획 넷 · 검증 · 되감기 · 갈래(원래 가지 보존) · 리메시 뒤 재생 · DSL 뒤 재생", v)
 
 
+def 만들기(앞, 옆, 키, 폴더):
+    """창 없이 그림 -> 형태. 벤치가 exe 를 이렇게 부른다 — 사람 버튼 · MCP 와 같은 `API.그림에서`."""
+    import trimesh
+    os.makedirs(폴더, exist_ok=True)
+    a = API()
+    r = a.그림에서(앞, 옆, float(키))
+    trimesh.Trimesh(a.e.V, a.e.F, process=False).export(os.path.join(폴더, "메시.stl"))
+    json.dump({"기본": a.기본, "저널": a.전체}, open(os.path.join(폴더, "저널.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    json.dump({"해시": r["해시"], "엔진": 엔진이름, "후보": r["후보"], "동점": r["동점"], "exe": bool(getattr(sys, "frozen", False))},
+              open(os.path.join(폴더, "결과.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+
+
 def main():
     import webview
     api = API()
@@ -255,5 +283,13 @@ def main():
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "점검":
         점검()
+    elif len(sys.argv) > 1 and sys.argv[1] == "만들기":
+        try:
+            만들기(*sys.argv[2:6])
+        except Exception:                          # 창 없는 exe 는 stdout 이 없다 — 오류는 파일로
+            import traceback
+            os.makedirs(sys.argv[5], exist_ok=True)
+            open(os.path.join(sys.argv[5], "오류.txt"), "w", encoding="utf-8").write(traceback.format_exc())
+            sys.exit(1)
     else:
         main()
