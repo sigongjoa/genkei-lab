@@ -52,6 +52,10 @@ def 정답(case):
 
 
 def 실루엣(Vw, F, view):
+    """view = front · side · back (win 그대로) · top (위에서 — 그림용. 벤치 자에는 없다. 창 y 를 세로로, +0.5 올려 창 안에)."""
+    Vw = np.asarray(Vw, np.float64)
+    if view == "top":
+        Vw, view = np.stack([Vw[:, 0], np.zeros(len(Vw)), Vw[:, 1] + 0.5], 1), "front"
     return np.asarray(W.silhouette(Vw, np.asarray(F), view)).astype(bool)
 
 
