@@ -101,7 +101,8 @@ def 후보들(앞, 옆, 키):
         짝들 = [[(0, 0), (1, 0)]] if no == 1 else [[(0, 0), (1, 1)], [(0, 1), (1, 0)]]
         for 짝 in 짝들:
             out.append(("두 덩어리", " + ".join(기둥(xs[i], ys[j]) for i, j in 짝)))
-    for 이름, 줄 in (("부위 타원뿔대", 사람형(앞, 옆, 키, 2)), ("부위 로프트", 사람형(앞, 옆, 키, 5)), ("층 타원", 층타원(앞, 옆, 키))):
+    for 이름, 줄 in (("부위 타원뿔대", 사람형(앞, 옆, 키, 2)), ("부위 로프트", 사람형(앞, 옆, 키, 5)), ("혼합", 혼합(앞, 옆, 키)),
+                     ("층 타원", 층타원(앞, 옆, 키))):
         if 줄:
             out.append((이름, 줄))
     return out
@@ -132,13 +133,19 @@ def 부위나누기(앞):
     cx = int(np.median(np.nonzero(앞)[1]))
     조각 = {r: _줄조각(앞[r]) for r in rows}
     가운데 = lambda r: next(((a, b) for a, b in 조각[r] if a <= cx < b), None)
-    가랑이 = bot + 1                                                   # 이 줄부터 아래가 다리
-    for r in range(bot, top - 1, -1):
+    # 가랑이: 아래 60% 에서 가운데 세로줄이 빈 줄이 가장 길게 이어진 덩어리의 맨 윗줄. 발끼리 붙어 맨 아래 줄이
+    # 차 있어도(차렷) 찾는다. 그 덩어리가 키의 5% 미만이면 다리가 안 갈라진 것.
+    가랑이, 긴 = bot + 1, 0
+    r = bot
+    while r >= top + 0.4 * 키px:
         if 가운데(r) is None:
-            가랑이 = r
-        else:
-            break
-    if 가랑이 > bot - 0.05 * 키px:                                     # 다리 사이 틈이 5% 미만이면 안 갈라진 것
+            r0 = r
+            while r >= top and 가운데(r) is None:
+                r -= 1
+            if r0 - r > 긴:
+                긴, 가랑이 = r0 - r, r + 1
+        r -= 1
+    if 긴 < 0.05 * 키px:
         가랑이 = bot + 1
     폭 = lambda r: (lambda g: g[1] - g[0] if g else 0)(가운데(r))
     몸통줄 = [r for r in range(int(top + 0.35 * 키px), min(가랑이, bot + 1)) if 가운데(r)]
@@ -267,6 +274,34 @@ def _모서리(m, f):
     폭 = m[rows].sum(1)
     k = int(np.argmax(폭 >= 폭.max() - 1))
     return k * f.s
+
+
+def 혼합(앞, 옆, 키, 층수=60, 팔매듭=9):
+    """층 타원(C) + 팔만 로프트. 켜마다 앞 구간을 부위 번호로 다시 쪼개 팔 조각은 빼고, 팔은 주성분 중심선을 따라
+    단면 아홉 개(깊이 = 폭, 둥글다). T포즈 팔이 몸통 깊이의 납작한 판이 되던 것(옆 그림 겹침)을 피한다."""
+    fa, fo = 틀(앞, 키), 틀(옆, 키)
+    L = 부위나누기(앞)
+    팔 = [번 for 번 in (3, 4) if (L == 번).sum() >= 30]
+    if not 팔:
+        return None
+    rows = np.nonzero(앞.any(1))[0]
+    경계 = np.linspace(rows.min(), rows.max() + 1, 층수 + 1)
+    토막 = []
+    for r0, r1 in zip(경계[:-1], 경계[1:]):
+        r = int((r0 + r1) / 2)
+        z0, z1 = (fa.bot - r1) * fa.s, (fa.bot - r0) * fa.s + 0.01
+        옆값 = _옆줄(옆, fo, (z0 + z1) / 2)
+        if not 옆값:
+            continue
+        y, 깊이 = 옆값
+        for a, b in _줄조각(앞[r] & ~np.isin(L[r], 팔)):
+            x, 너비 = ((a + b) / 2 - fa.c) * fa.s, (b - a) * fa.s
+            토막.append("로프트(점=[[%.1f, %.1f, %.2f], [%.1f, %.1f, %.2f]], w=[%.1f, %.1f], d=[%.1f, %.1f])"
+                      % (x, y, z0, x, y, z1, 너비, 너비, 깊이, 깊이))
+    for 번 in 팔:
+        ys, xs = np.nonzero(L == 번)
+        토막.append(_로프트줄(ys, xs, 번, 앞, 옆, fa, fo, 팔매듭))
+    return " + ".join(토막)
 
 
 def 대보기(줄, 앞, 옆, 키):

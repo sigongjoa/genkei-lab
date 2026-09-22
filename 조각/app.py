@@ -4,6 +4,7 @@
     python app.py                 창을 띄운다
     python app.py 점검             창 없이 API 를 한 바퀴 돈다 (획 · 되감기 · 검증 · 저장)
     조각.exe 만들기 앞.png 옆.png 키mm 폴더   창 없이 그림 두 장 -> 폴더/{메시.stl, 저널.json, 결과.json}
+    조각.exe 키트 앞.png 옆.png 키mm 폴더     위 + 부위로 잘라 핀 · 판정 -> 폴더/{부품/*.stl, 키트.json, 키트.png}
     pyinstaller 조각.spec          -> dist/조각.exe
 
 화면(ui/index.html · three.js)은 마우스를 **모델 위 세계 좌표**로 바꿔 아래 API 를 부른다.
@@ -272,6 +273,16 @@ def 만들기(앞, 옆, 키, 폴더):
               open(os.path.join(폴더, "결과.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
 
+def 키트(앞, 옆, 키, 폴더):
+    """그림 두 장 -> 형태(만들기와 같다) -> 부위로 자른 출력 키트."""
+    import 키트 as K
+    만들기(앞, 옆, 키, 폴더)
+    결과 = json.load(open(os.path.join(폴더, "결과.json"), encoding="utf-8"))
+    줄 = 결과["후보"][0]["줄"]
+    메시, 핀들, 판정, 받침 = K.만들기(그.마스크(앞), 그.마스크(옆), float(키), 줄)
+    K.쓰기(메시, 핀들, 판정, 받침, 폴더, "%s — %s · 키 %s mm" % (os.path.basename(os.path.dirname(os.path.abspath(앞))), 결과["후보"][0]["이름"], 키), 줄)
+
+
 def main():
     import webview
     api = API()
@@ -283,9 +294,9 @@ def main():
 if __name__ == "__main__":
     if len(sys.argv) > 1 and sys.argv[1] == "점검":
         점검()
-    elif len(sys.argv) > 1 and sys.argv[1] == "만들기":
+    elif len(sys.argv) > 1 and sys.argv[1] in ("만들기", "키트"):
         try:
-            만들기(*sys.argv[2:6])
+            (만들기 if sys.argv[1] == "만들기" else 키트)(*sys.argv[2:6])
         except Exception:                          # 창 없는 exe 는 stdout 이 없다 — 오류는 파일로
             import traceback
             os.makedirs(sys.argv[5], exist_ok=True)

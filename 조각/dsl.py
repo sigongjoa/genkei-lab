@@ -154,10 +154,22 @@ def _풀기(n):
     raise ValueError("모르는 것: %s — 되는 것은 %s · + · -" % (ast.unparse(n), " · ".join(어휘)))
 
 
-def 실행(줄):
-    """DSL 한 줄 -> (V, F) 닫힌 다양체. 결정적이다."""
+def 매니폴드(줄):
+    """DSL 한 줄 -> manifold 객체 (불리언을 더 할 때 — 키트 자르기)."""
     man = _풀기(ast.parse(줄.strip(), mode="eval").body)
     assert not man.is_empty() and man.status() == m3.Error.NoError, "빈 모양이거나 다양체가 아니다: " + 줄
+    return man
+
+
+def 메시(man):
+    """manifold -> (V, F) 정렬된 순서."""
+    me = man.to_mesh()
+    return 정렬(np.asarray(me.vert_properties, np.float64)[:, :3], np.asarray(me.tri_verts, np.int64))
+
+
+def 실행(줄):
+    """DSL 한 줄 -> (V, F) 닫힌 다양체. 결정적이다."""
+    man = 매니폴드(줄)
     me = man.to_mesh()
     return 정렬(np.asarray(me.vert_properties, np.float64)[:, :3], np.asarray(me.tri_verts, np.int64))
 

@@ -1,0 +1,122 @@
+"""키트 벤치 — `조각.exe 키트` 로 그림 두 장에서 출력 키트까지. 사람형 35 + 도형 11.
+
+    python 벤치/키트벤치.py        -> out/키트벤치.json · out/키트벤치.png · out/exe/<케이스>/{부품/*.stl, 키트.json, 키트.png}
+
+  1순위  exe 가 고른 형태(메시.stl) 의 3D IoU
+  혼합 · 층 타원  exe 결과.json 후보 줄을 파이썬으로 실행해 잰 3D IoU (같은 dsl.py)
+  키트   exe 가 쓴 키트.json 의 판정 Q1~Q6 · 부품 부피 합 / 형태 부피
+
+개발은 두 장(마네킹_T포즈 · avatarsample_d)에서만: 층 타원 0.870 · 0.827 → 혼합 0.906 · 0.862. 키트 검사는 코드로 그린 사람.
+예측 (09-22, 돌리기 전에 커밋):
+  K1 사람형 35장 혼합 중앙 > 층 타원 중앙, 그리고 >= 0.76
+  K2 exe 1순위 사람형 중앙 >= 0.76
+  K3 도형 가를 수 있는 여섯 그대로 >= 0.95
+  K4 키트 Q1 닫힘 · Q4 부품 <= 15 · Q5 다 이어짐 — 46장 모두 통과
+  K5 부품 부피 합 / 형태 부피 — 46장 모두 0.98 ~ 1.02 (핀 공차만큼만 다르다)
+  K6 Q6 자립 — 받침 없이 서는 장이 사람형의 60% 이상, 받침을 더한 뒤로는 46장 모두 통과
+  K7 Q3 얇은 부피 — 사람형의 50% 이상이 통과
+  K8 46장 exe 해시 = 파이썬 재생 해시
+"""
+import json
+import os
+import subprocess
+import sys
+
+import numpy as np
+import trimesh
+from PIL import Image, ImageDraw
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+sys.path.insert(0, os.path.join(HERE, "..", "조각"))
+import 어댑터 as A           # noqa: E402
+import dsl as D             # noqa: E402
+import exe벤치 as X          # noqa: E402
+
+
+def 한장(case, 재생):
+    폴더 = os.path.join(A.OUT, "exe", case)
+    r = subprocess.run([X.EXE, "키트", os.path.join(X.시트, case, "front.png"), os.path.join(X.시트, case, "side.png"), "150", 폴더], timeout=1800)
+    if r.returncode:
+        raise RuntimeError(open(os.path.join(폴더, "오류.txt"), encoding="utf-8").read())
+    결과 = json.load(open(os.path.join(폴더, "결과.json"), encoding="utf-8"))
+    저널 = json.load(open(os.path.join(폴더, "저널.json"), encoding="utf-8"))
+    키트 = json.load(open(os.path.join(폴더, "키트.json"), encoding="utf-8"))
+    답 = A.정답(case)
+    m = trimesh.load(os.path.join(폴더, "메시.stl"), force="mesh")
+    out = {"1순위": 결과["후보"][0]["이름"], "exe": A.채점(m.vertices, m.faces, 답)["IoU3D"],
+           "해시 같음": 재생(저널["저널"]).해시() == 결과["해시"],
+           "판정": {k: v["통과"] for k, v in 키트["판정"].items()}, "받침": 키트["받침 더함"],
+           "부품": sorted(키트["부품"]), "핀": len(키트["핀"]),
+           "부피비": round(sum(v["부피 mm3"] for k, v in 키트["부품"].items() if k != "받침") / abs(m.volume), 4)}
+    for 이름 in ("혼합", "층 타원"):
+        h = next((h for h in 결과["후보"] if h["이름"] == 이름), None)
+        if h:
+            out[이름] = A.채점(*D.실행(h["줄"]), 답)["IoU3D"]
+    return out
+
+
+def main():
+    import app
+    재생 = lambda 칸들: app.API()._재생(칸들)
+    기록 = {}
+    for g in ("마네킹", "실물", "도형"):
+        for c in X.묶음[g]:
+            r = 한장(c, 재생)
+            기록[c] = dict(r, 묶음=g)
+            print("  %-4s %-36s %-6s 3D %.3f · 혼합 %s · 층 %s · 부품 %d · 핀 %d · 부피비 %.3f · %s%s · 해시 %s" % (
+                g, c[:36], r["1순위"], r["exe"], "%.3f" % r["혼합"] if "혼합" in r else "-", "%.3f" % r["층 타원"] if "층 타원" in r else "-",
+                len(r["부품"]), r["핀"], r["부피비"], "".join("○" if v else "×" for v in r["판정"].values()), " 받침" if r["받침"] else "",
+                "같음" if r["해시 같음"] else "다름!"), flush=True)
+            json.dump({"기록": 기록}, open(os.path.join(A.OUT, "키트벤치.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    판정(기록)
+    모음(기록)
+
+
+def 판정(기록):
+    사람 = [v for v in 기록.values() if v["묶음"] != "도형"]
+    med = lambda k: float(np.median([v[k] for v in 사람 if k in v]))
+    q = lambda v, 앞: next(b for k, b in v["판정"].items() if k.startswith(앞))
+    옛 = ["도형_" + n for n in ("구", "원뿔", "치마", "토러스세움", "토러스옆", "두기둥나란히")]
+    서 = np.mean([not v["받침"] for v in 사람])
+    값 = [(med("혼합") > med("층 타원") and med("혼합") >= 0.76, "혼합 %.3f · 층 타원 %.3f" % (med("혼합"), med("층 타원"))),
+          (med("exe") >= 0.76, "exe 1순위 중앙 %.3f · 고른 것 %s" % (med("exe"), sorted({v["1순위"] for v in 사람}))),
+          (all(기록[c]["exe"] >= 0.95 for c in 옛), " · ".join("%s %.3f" % (c[3:], 기록[c]["exe"]) for c in 옛)),
+          (all(q(v, "Q1") and q(v, "Q4") and q(v, "Q5") for v in 기록.values()), "Q1 %d · Q4 %d · Q5 %d / %d" % tuple(
+              [sum(q(v, k) for v in 기록.values()) for k in ("Q1", "Q4", "Q5")] + [len(기록)])),
+          (all(0.98 <= v["부피비"] <= 1.02 for v in 기록.values()), "부피비 %.3f ~ %.3f" % (min(v["부피비"] for v in 기록.values()), max(v["부피비"] for v in 기록.values()))),
+          (서 >= 0.6 and all(q(v, "Q6") for v in 기록.values()), "받침 없이 서는 사람형 %.0f%% · Q6 통과 %d/%d" % (100 * 서, sum(q(v, "Q6") for v in 기록.values()), len(기록))),
+          (np.mean([q(v, "Q3") for v in 사람]) >= 0.5, "사람형 Q3 통과 %.0f%%" % (100 * np.mean([q(v, "Q3") for v in 사람]))),
+          (all(v["해시 같음"] for v in 기록.values()), "%d장" % len(기록))]
+    예측 = [l.strip() for l in __doc__.splitlines() if l.strip().startswith("K")]
+    print("\n예측")
+    결과 = []
+    for 말, (맞, 글) in zip(예측, 값):
+        print("  %s %s\n      %s" % ("○" if 맞 else "✗", 말, 글))
+        결과.append({"예측": 말, "맞음": bool(맞), "값": 글})
+    for g in ("마네킹", "실물"):
+        xs = [v for v in 사람 if v["묶음"] == g]
+        print("  %s %d장 중앙 — 혼합 %.3f · 층 타원 %.3f · exe %.3f" % (g, len(xs), *[float(np.median([v[k] for v in xs])) for k in ("혼합", "층 타원", "exe")]))
+    json.dump({"기록": 기록, "예측": 결과}, open(os.path.join(A.OUT, "키트벤치.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+
+
+def 모음(기록, 열=6, 칸=(260, 320)):
+    """케이스마다 키트.png 의 분해도 쪽을 한 장에."""
+    cs = [c for c, v in 기록.items() if v["묶음"] != "도형"]
+    im = Image.new("RGB", (열 * 칸[0], ((len(cs) + 열 - 1) // 열) * (칸[1] + 36)), "white")
+    d = ImageDraw.Draw(im)
+    import 키트 as K
+    for i, c in enumerate(cs):
+        k = Image.open(os.path.join(A.OUT, "exe", c, "키트.png")).crop((560, 60, 1080, 700))
+        k.thumbnail(칸)
+        x, y = (i % 열) * 칸[0], (i // 열) * (칸[1] + 36)
+        im.paste(k, (x, y))
+        v = 기록[c]
+        d.text((x + 6, y + 칸[1] + 2), "%s · %.2f · 부품 %d%s" % (c.replace("마네킹_", "")[:18], v["exe"], len(v["부품"]), " · 받침" if v["받침"] else ""),
+               fill="black" if all(v["판정"].values()) else (200, 60, 50), font=K._글꼴(13))
+    im.save(os.path.join(A.OUT, "키트벤치.png"))
+    print("->", os.path.join(A.OUT, "키트벤치.png"))
+
+
+if __name__ == "__main__":
+    main()

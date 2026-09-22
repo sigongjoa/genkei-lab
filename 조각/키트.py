@@ -1,0 +1,277 @@
+"""키트 — 모양(DSL 한 줄)을 앞 그림의 부위 영역으로 잘라 부품으로 · 몸통과 닿는 곳에 끼움 핀 · 출력 판정 Q1~Q6 · 그림.
+
+    python 조각/키트.py 검사
+
+  자르기   앞 그림 부위 번호(그림.부위나누기)를 물체 밖까지 가장 가까운 부위로 채워 평면을 나눈다 → 부위마다 그 영역을
+           깊이(y) 방향으로 밀어낸 기둥과 모양의 교집합 = 부품. 부품을 다 합치면 모양 그대로다(모양은 안 바뀐다).
+  핀       몸통과 닿는 부위마다 경계 가운데에, 경계에 수직으로. 핀은 자식 부품에 붙고 몸통에는 구멍(공차 0.15 mm).
+  판정     Q1 부품마다 닫힘 · Q2 접합면 반지름 >= 3 mm · Q3 0.8 mm 보다 얇은 부피 < 1% · Q4 부품 <= 15 ·
+           Q5 부품이 다 이어짐 · Q6 자립(무게중심이 발바닥 볼록 껍질 안, 여유 >= 2 mm). Q6 이 떨어지면 받침을 더하고 다시 잰다.
+           문턱은 원화3d/실험_20260921/조립성.py(키 150 mm · FDM 0.4 기준) 그대로, Q6 만 새로.
+"""
+import json
+import os
+
+import numpy as np
+import manifold3d as m3
+import trimesh
+from PIL import Image, ImageDraw, ImageFont
+from scipy import ndimage
+from scipy.spatial import ConvexHull
+from skimage import measure
+
+import dsl as D
+import 그림 as G
+
+M = m3.Manifold
+공차 = 0.15
+몸통 = 2
+색 = {"머리": (231, 111, 81), "몸통": (170, 170, 180), "팔.왼": (86, 156, 214), "팔.오": (66, 130, 200),
+     "다리.왼": (106, 190, 120), "다리.오": (86, 170, 100), "하체": (210, 175, 95), "받침": (120, 120, 120)}
+
+
+def _글꼴(n):
+    for p in ("C:/Windows/Fonts/malgun.ttf", "C:/Windows/Fonts/malgunbd.ttf"):
+        if os.path.exists(p):
+            return ImageFont.truetype(p, n)
+    return ImageFont.load_default()
+
+
+# ── 자르기 ───────────────────────────────────────────────────────────────────
+
+def 부위판(앞):
+    """-> (평면 전체를 채운 부위 번호, 물체 안만 부위 번호)."""
+    L = G.부위나누기(앞)
+    L[(L == 0) & 앞] = 몸통                                            # 규칙이 못 정한 물체 화소는 몸통
+    if not L.any():
+        L[앞] = 몸통
+    idx = ndimage.distance_transform_edt(L == 0, return_distances=False, return_indices=True)
+    return L[idx[0], idx[1]], L
+
+
+def _기둥(판, 번호, fa, Y):
+    """부위 영역(앞 그림 평면)을 깊이 방향으로 [-Y, Y] 밀어낸 기둥."""
+    m = np.pad(판 == 번호, 1).astype(float)
+    polys = []
+    for c in measure.find_contours(m, 0.5):
+        r, col = c[:, 0] - 1, c[:, 1] - 1
+        polys.append(np.stack([(col + 0.5 - fa.c) * fa.s, (fa.bot - r - 0.5) * fa.s], 1))
+    cs = m3.CrossSection(polys, m3.FillRule.EvenOdd)
+    return M.extrude(cs, 2 * Y).rotate([90, 0, 0]).translate([0, Y, 0])
+
+
+# ── 핀 ───────────────────────────────────────────────────────────────────────
+
+def 닿는곳(L):
+    """물체 안 부위 경계 -> {(i, j): 경계 화소 (행, 열) 배열}."""
+    out = {}
+    for dr, dc in ((0, 1), (1, 0)):
+        a, b = L[:L.shape[0] - dr, :L.shape[1] - dc], L[dr:, dc:]
+        m = (a > 0) & (b > 0) & (a != b)
+        rr, cc = np.nonzero(m)
+        for i, j, r, c in zip(a[m], b[m], rr + dr / 2, cc + dc / 2):
+            out.setdefault(tuple(sorted((int(i), int(j)))), []).append((r, c))
+    return {k: np.array(v) for k, v in out.items()}
+
+
+def 핀자리(k, P, L, 옆, fa, fo):
+    """몸통(부모)과 자식 부위 경계 하나 -> 핀 한 개의 자리 · 방향 · 크기."""
+    자식 = k[0] if k[1] == 몸통 else k[1]
+    X, Z = (P[:, 1] + 0.5 - fa.c) * fa.s, (fa.bot - P[:, 0] - 0.5) * fa.s
+    Q = np.stack([X, Z], 1)
+    c = Q.mean(0)
+    u, s, vt = np.linalg.svd(Q - c, full_matrices=False)
+    t = vt[0] if len(Q) > 1 else np.array([1.0, 0.0])
+    n = np.array([-t[1], t[0]])
+    ys, xs = np.nonzero(L == 자식)
+    자식중심 = np.array([(xs.mean() + 0.5 - fa.c) * fa.s, (fa.bot - ys.mean() - 0.5) * fa.s])
+    if (자식중심 - c) @ n < 0:
+        n = -n
+    길이 = float(np.ptp(Q @ t)) + fa.s
+    옆값 = G._옆줄(옆, fo, c[1]) or (0.0, 길이)
+    y, 깊이 = 옆값
+    작은 = min(길이, 깊이)
+    return {"부모": G.부위이름[몸통], "자식": G.부위이름[자식], "자리": [round(float(c[0]), 2), round(float(y), 2), round(float(c[1]), 2)],
+            "방향": [round(float(n[0]), 4), 0.0, round(float(n[1]), 4)], "r": round(float(np.clip(0.2 * 작은, 1.0, 4.0)), 2),
+            "반길이": round(float(np.clip(0.35 * 작은, 2.0, 6.0)), 2), "접합 반지름": round(작은 / 2, 2)}
+
+
+def _원통(핀, r, 반):
+    θ = np.degrees(np.arctan2(핀["방향"][0], 핀["방향"][2]))
+    return M.cylinder(2 * 반, r, r, 32).translate([0, 0, -반]).rotate([0, float(θ), 0]).translate(핀["자리"])
+
+
+# ── 판정 ─────────────────────────────────────────────────────────────────────
+
+def 얇은몫(V, F, 칸=0.27):
+    """0.8 mm 보다 얇은 부피의 몫 — 칸 0.27 mm 복셀을 3×3×3 십자로 열었을 때 사라지는 몫."""
+    g = trimesh.Trimesh(V, F, process=False).voxelized(칸).fill().matrix
+    if not g.any():
+        return 0.0
+    열린 = ndimage.binary_opening(g, structure=ndimage.generate_binary_structure(3, 1))
+    return float(1 - 열린.sum() / g.sum())
+
+
+def 자립(V, F):
+    """-> (여유 mm, 무게중심 xy, 발바닥 점들). 여유 > 0 이면 무게중심이 발바닥 볼록 껍질 안."""
+    m = trimesh.Trimesh(V, F, process=False)
+    com = m.center_mass[:2]
+    바닥 = V[V[:, 2] < V[:, 2].min() + 0.5][:, :2]
+    if len(np.unique(np.round(바닥, 2), axis=0)) < 3:
+        return -1e9, com, 바닥
+    h = ConvexHull(바닥)
+    여유 = -max(float(e[:2] @ com + e[2]) for e in h.equations)          # 면 방정식 n·x + d <= 0 이 안쪽
+    return 여유, com, 바닥[h.vertices]
+
+
+# ── 만들기 ───────────────────────────────────────────────────────────────────
+
+def 만들기(앞, 옆, 키, 줄):
+    """-> (부품 {이름: (V, F)}, 핀 목록, 판정 dict, 받침 더함?)."""
+    fa, fo = G.틀(앞, 키), G.틀(옆, 키)
+    판, L = 부위판(앞)
+    모양 = D.매니폴드(줄)
+    b = np.asarray(모양.bounding_box())
+    Y = float(max(abs(b[1]), abs(b[4]))) + 5
+    부품, 남은 = {}, 모양
+    for 번호 in sorted(set(np.unique(L)) - {0, 몸통}):                 # 따로 딴 윤곽은 경계에서 조금 겹칠 수 있다 —
+        조각 = 남은 ^ _기둥(판, 번호, fa, Y)                               # 남은 데서 떼어 가면 합이 모양과 꼭 같다
+        if not 조각.is_empty() and 조각.volume() > 1.0:
+            부품[G.부위이름[int(번호)]] = 조각
+            남은 = 남은 - 조각
+    부품["몸통"] = 남은
+    핀들 = [핀자리(k, P, L, 옆, fa, fo) for k, P in sorted(닿는곳(L).items())
+           if 몸통 in k and len(P) >= 5 and G.부위이름[k[0] if k[1] == 몸통 else k[1]] in 부품 and "몸통" in 부품]
+    for 핀 in 핀들:
+        부품[핀["자식"]] = 부품[핀["자식"]] + _원통(핀, 핀["r"], 핀["반길이"])
+        부품["몸통"] = 부품["몸통"] - _원통(핀, 핀["r"] + 공차, 핀["반길이"] + 0.3)
+    메시 = {k: D.메시(v) for k, v in 부품.items()}
+    합 = D.메시(모양)
+    여유, com, 발 = 자립(*합)
+    받침 = 여유 < 2.0
+    if 받침:                                                           # Q6 이 떨어지면 받침 — 무게중심 둘레 원판, 두께 4 mm
+        반지름 = float(np.max(np.linalg.norm(발 - com, axis=1))) + 8 if len(발) else 30.0
+        메시["받침"] = D.메시(M.cylinder(4.0, 반지름, 반지름, 64).translate([float(com[0]), float(com[1]), -4.0]))
+    얇 = {k: 얇은몫(*v) for k, v in 메시.items()}
+    이어짐 = {k for k in 메시 if k in ("몸통", "받침")} | {p["자식"] for p in 핀들}
+    판정 = {
+        "Q1 닫힘": {"통과": all(trimesh.Trimesh(*v, process=False).is_watertight for v in 메시.values()), "값": len(메시)},
+        "Q2 접합면 반지름 >= 3 mm": {"통과": all(p["접합 반지름"] >= 3 for p in 핀들), "값": {p["자식"]: p["접합 반지름"] for p in 핀들}},
+        "Q3 얇은 부피 < 1%": {"통과": all(v < 0.01 for v in 얇.values()), "값": {k: round(v, 4) for k, v in 얇.items()}},
+        "Q4 부품 <= 15": {"통과": len(메시) <= 15, "값": len(메시)},
+        "Q5 다 이어짐": {"통과": set(메시) <= 이어짐, "값": sorted(set(메시) - 이어짐)},
+        "Q6 자립 여유 >= 2 mm": {"통과": True if 받침 else 여유 >= 2.0, "값": round(float(여유), 2), "받침": 받침},
+    }
+    return 메시, 핀들, 판정, 받침
+
+
+# ── 그림 ─────────────────────────────────────────────────────────────────────
+
+def _돌림(yaw=35.0, pitch=18.0):
+    a, b = np.radians(yaw), np.radians(pitch)
+    Rz = np.array([[np.cos(a), -np.sin(a), 0], [np.sin(a), np.cos(a), 0], [0, 0, 1]])
+    Rx = np.array([[1, 0, 0], [0, np.cos(b), -np.sin(b)], [0, np.sin(b), np.cos(b)]])
+    return Rx @ Rz
+
+
+def 그리기(메시, 핀들=(), 벌림=0.0, 크기=(520, 640)):
+    """3/4 에서 본 그림 (화가 순서). 벌림 > 0 이면 부품을 핀 방향으로 벌림 mm 씩 빼낸 분해도."""
+    R = _돌림()
+    방향 = {p["자식"]: np.array(p["방향"]) for p in 핀들}
+    tris, 색들 = [], []
+    for k, (V, F) in 메시.items():
+        off = 방향.get(k, np.array([0, 0, -1.0]) if k == "받침" else np.zeros(3)) * 벌림
+        W = (V + off) @ R.T
+        T = W[F]
+        n = np.cross(T[:, 1] - T[:, 0], T[:, 2] - T[:, 0])
+        n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+        앞면 = n[:, 1] < 0                                             # 카메라는 -y 에서 +y 를 본다
+        빛 = 0.35 + 0.65 * np.clip(n[앞면] @ np.array([-0.35, -0.75, 0.55]) / np.linalg.norm([-0.35, -0.75, 0.55]), 0, 1)
+        tris.append(T[앞면])
+        색들.append(np.array(색.get(k, (200, 200, 200)))[None] * 빛[:, None])
+    T, C = np.concatenate(tris), np.concatenate(색들)
+    xy = T[:, :, [0, 2]]
+    lo, hi = xy.reshape(-1, 2).min(0), xy.reshape(-1, 2).max(0)
+    s = 0.9 * min(크기[0] / (hi[0] - lo[0]), 크기[1] / (hi[1] - lo[1]))
+    P = np.stack([(xy[..., 0] - (lo[0] + hi[0]) / 2) * s + 크기[0] / 2, 크기[1] / 2 - (xy[..., 1] - (lo[1] + hi[1]) / 2) * s], -1)
+    im = Image.new("RGB", 크기, (250, 250, 252))
+    d = ImageDraw.Draw(im)
+    for i in np.argsort(-T[:, :, 1].mean(1)):                          # 먼 것부터
+        d.polygon([tuple(p) for p in P[i]], fill=tuple(int(c) for c in C[i]))
+    return im
+
+
+def 시트(메시, 핀들, 판정, 제목):
+    W, H = 1100, 900
+    im = Image.new("RGB", (W, H), "white")
+    d = ImageDraw.Draw(im)
+    d.text((24, 16), 제목, fill="black", font=_글꼴(24))
+    im.paste(그리기(메시), (20, 60))
+    im.paste(그리기(메시, 핀들, 25.0), (560, 60))
+    d.text((40, 70), "조립", fill=(120, 120, 120), font=_글꼴(16))
+    d.text((580, 70), "분해 · 핀 %d" % len(핀들), fill=(120, 120, 120), font=_글꼴(16))
+    y = 715
+    for k, v in 판정.items():
+        값 = v["값"] if not isinstance(v["값"], dict) else ", ".join("%s %s" % kv for kv in list(v["값"].items())[:6])
+        글 = "%s  %s  %s" % ("○" if v["통과"] else "×", k, 값)
+        if k.startswith("Q6") and v.get("받침"):
+            글 += "  → 받침을 더해 통과"
+        d.text((30, y), 글[:110], fill=(40, 160, 80) if v["통과"] else (220, 60, 50), font=_글꼴(16))
+        y += 28
+    x = 30
+    for k in 메시:
+        d.rectangle([x, 695, x + 14, 709], fill=색.get(k, (200, 200, 200)))
+        d.text((x + 18, 692), k, fill="black", font=_글꼴(14))
+        x += 30 + 14 * len(k)
+    return im
+
+
+def 쓰기(메시, 핀들, 판정, 받침, 폴더, 제목, 줄):
+    os.makedirs(os.path.join(폴더, "부품"), exist_ok=True)
+    for k, (V, F) in 메시.items():
+        trimesh.Trimesh(V, F, process=False).export(os.path.join(폴더, "부품", k + ".stl"))
+    json.dump({"모양": 줄, "부품": {k: {"정점": int(len(V)), "부피 mm3": round(float(trimesh.Trimesh(V, F, process=False).volume), 1)}
+                                  for k, (V, F) in 메시.items()},
+               "핀": 핀들, "판정": 판정, "받침 더함": 받침, "공차 mm": 공차},
+              open(os.path.join(폴더, "키트.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    시트(메시, 핀들, 판정, 제목).save(os.path.join(폴더, "키트.png"))
+
+
+def 검사():
+    """코드로 그린 사람 모양 — 부품 합 = 모양 · 핀 · 판정이 돈다."""
+    im = Image.new("L", (400, 800), 255)
+    d = ImageDraw.Draw(im)
+    d.ellipse([160, 40, 240, 130], fill=0)                             # 머리
+    d.rectangle([185, 125, 215, 150], fill=0)                          # 목
+    d.rectangle([140, 150, 260, 420], fill=0)                          # 몸통
+    d.rectangle([40, 160, 140, 195], fill=0); d.rectangle([260, 160, 360, 195], fill=0)     # 팔 (T)
+    d.rectangle([145, 420, 195, 760], fill=0); d.rectangle([205, 420, 255, 760], fill=0)    # 다리
+    d.rectangle([130, 740, 200, 760], fill=0); d.rectangle([200, 740, 270, 760], fill=0)    # 발
+    앞 = np.asarray(im) < 128
+    im2 = Image.new("L", (300, 800), 255)
+    d2 = ImageDraw.Draw(im2)
+    d2.ellipse([110, 40, 190, 130], fill=0); d2.rectangle([135, 125, 165, 150], fill=0)
+    d2.rectangle([110, 150, 190, 420], fill=0); d2.rectangle([120, 420, 180, 760], fill=0); d2.rectangle([120, 740, 215, 760], fill=0)
+    옆 = np.asarray(im2) < 128
+    줄 = G.층타원(앞, 옆, 150.0)
+    메시, 핀들, 판정, 받침 = 만들기(앞, 옆, 150.0, 줄)
+    print("  부품", sorted(메시), "· 핀", [(p["자식"], p["r"]) for p in 핀들], "· 받침", 받침)
+    for k, v in 판정.items():
+        print("   ", "○" if v["통과"] else "✗", k, v["값"])
+    합 = D.메시(D.매니폴드(줄))
+    부피 = sum(trimesh.Trimesh(*v, process=False).volume for k, v in 메시.items() if k != "받침")
+    print("  부품 부피 합 %.0f · 모양 부피 %.0f mm3" % (부피, trimesh.Trimesh(*합, process=False).volume))
+    assert {"머리", "몸통", "팔.왼", "팔.오", "다리.왼", "다리.오"} <= set(메시), sorted(메시)
+    assert len(핀들) >= 5, 핀들
+    assert abs(부피 / trimesh.Trimesh(*합, process=False).volume - 1) < 0.01, "부품을 합치면 모양 부피 그대로 (핀 공차만큼만 빔)"
+    assert 판정["Q1 닫힘"]["통과"] and 판정["Q4 부품 <= 15"]["통과"] and 판정["Q5 다 이어짐"]["통과"]
+    시트(메시, 핀들, 판정, "키트 검사 — 코드로 그린 사람").save("키트_검사.png")
+    print("키트 검사 통과 -> 키트_검사.png")
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) > 1 and sys.argv[1] == "검사":
+        검사()
+    else:
+        print(__doc__)
