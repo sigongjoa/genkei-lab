@@ -85,13 +85,37 @@ def 겹침(t, m):
     return g
 
 
+def 그림(칸들, 머리, 부제, 이름, 열=4, S=150):
+    """칸 = (제목, [(정답 마스크, 조각 마스크), ...], 점수 글, 빨간 제목?) -> out/<이름>."""
+    from PIL import Image, ImageDraw
+    from 계획 import _font                                      # 원화3d 의 한글 글꼴
+    글 = _font(15)
+    n = max(len(c[1]) for c in 칸들)
+    w = n * (S + 4) + 16
+    행 = (len(칸들) + 열 - 1) // 열
+    im = Image.new("RGB", (열 * w + 20, 행 * (S + 58) + 70), "white")
+    d = ImageDraw.Draw(im)
+    d.text((20, 14), 머리, fill="black", font=_font(18))
+    d.text((20, 40), 부제, fill=(110, 110, 110), font=글)
+    for i, (제목, 쌍들, 점수, 빨강) in enumerate(칸들):
+        x, y = 20 + (i % 열) * w, 70 + (i // 열) * (S + 58)
+        for j, (t, m) in enumerate(쌍들):
+            ys, xs = np.nonzero(t | m)
+            box = (max(xs.min() - 8, 0), max(ys.min() - 8, 0), xs.max() + 8, ys.max() + 8)
+            tile = Image.fromarray(겹침(t, m)).crop(box)
+            tile.thumbnail((S, S))
+            im.paste(tile, (x + j * (S + 4) + (S - tile.width) // 2, y + (S - tile.height) // 2))
+        d.text((x, y + S + 4), 제목, fill=(255, 59, 48) if 빨강 else "black", font=글)
+        d.text((x, y + S + 24), 점수, fill=(110, 110, 110), font=글)
+    os.makedirs(OUT, exist_ok=True)
+    p = os.path.join(OUT, 이름)
+    im.save(p)
+    return p
+
+
 def 검사():
     sys.path.insert(0, os.path.join(HERE, "..", "조각"))
     from engine import 조각
-    from PIL import Image, ImageDraw
-    from 계획 import _font                                      # 원화3d 의 한글 글꼴
-    os.makedirs(OUT, exist_ok=True)
-
     칸들 = []                                                   # (제목, 정답 앞, 조각 앞, 정답 옆, 조각 옆, 점수)
     def 한칸(제목, case, V, F, 답=None):
         답 = 답 or 정답(case)
@@ -126,27 +150,10 @@ def 검사():
     assert s2["IoU3D"] < 0.9, s2
     assert s3["IoU3D"] < 0.5, s3
 
-    # 그림 — 칸마다 앞 · 옆 겹침
-    S, 글 = 150, _font(15)
-    열 = 4
-    행 = (len(칸들) + 열 - 1) // 열
-    im = Image.new("RGB", (열 * (2 * S + 20) + 20, 행 * (S + 58) + 70), "white")
-    d = ImageDraw.Draw(im)
-    d.text((20, 14), "벤치 어댑터 검사 — 회색 겹침 · 빨강 정답만 · 파랑 조각만 (앞 | 옆)", fill="black", font=_font(18))
-    d.text((20, 40), "위 12 칸: 왕복 (1 이어야 함) · 마지막 3 칸: 일부러 틀린 것 (떨어져야 함)", fill=(110, 110, 110), font=글)
-    for i, (제목, ta, ma, ts, ms, s) in enumerate(칸들):
-        x, y = 20 + (i % 열) * (2 * S + 20), 70 + (i // 열) * (S + 58)
-        for j, (t, m) in enumerate(((ta, ma), (ts, ms))):
-            ys, xs = np.nonzero(t | m)
-            box = (max(xs.min() - 8, 0), max(ys.min() - 8, 0), xs.max() + 8, ys.max() + 8)
-            tile = Image.fromarray(겹침(t, m)).crop(box)
-            tile.thumbnail((S, S))
-            im.paste(tile, (x + j * (S + 4) + (S - tile.width) // 2, y + (S - tile.height) // 2))
-        틀 = s["IoU3D"] < 0.9
-        d.text((x, y + S + 4), 제목, fill=(255, 59, 48) if 틀 else "black", font=글)
-        d.text((x, y + S + 24), "3D %.3f (판 %.3f) · 앞 %.3f · 옆 %.3f" % (s["IoU3D"], s["IoU3D_점수판"], s["앞"], s["옆"]), fill=(110, 110, 110), font=글)
-    p = os.path.join(OUT, "어댑터_검사.png")
-    im.save(p)
+    p = 그림([(c[0], [(c[1], c[2]), (c[3], c[4])], "3D %.3f (판 %.3f) · 앞 %.3f · 옆 %.3f" % (c[5]["IoU3D"], c[5]["IoU3D_점수판"], c[5]["앞"], c[5]["옆"]),
+               c[5]["IoU3D"] < 0.9) for c in 칸들],
+             "벤치 어댑터 검사 — 회색 겹침 · 빨강 정답만 · 파랑 조각만 (앞 | 옆)",
+             "위 12 칸: 왕복 (1 이어야 함) · 마지막 3 칸: 일부러 틀린 것 (떨어져야 함)", "어댑터_검사.png")
     print("검사 통과 — 왕복 %d 장 전부 > 0.999 · 정면 -y · 틀린 셋은 떨어짐 ->" % (len(칸들) - 3), p)
 
 
