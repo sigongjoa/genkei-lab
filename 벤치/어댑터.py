@@ -45,8 +45,8 @@ def fill_slices(T):
     return out
 
 
-def 정답(case):
-    t = trimesh.load(os.path.join(원화3d, "out", "시트", case, "truth.glb"), force="mesh")
+def 정답(case, 뿌리=None):
+    t = trimesh.load(os.path.join(뿌리 or os.path.join(원화3d, "out", "시트"), case, "truth.glb"), force="mesh")
     T, ot = J.grid(t, J.PITCH)
     return {"메시": t, "TF": fill_slices(T), "ot": ot}
 

@@ -56,9 +56,10 @@ EXE = os.path.join(HERE, "..", "조각", "dist", "조각.exe")
 ]
 
 
-def exe로(case, 폴더):
+def exe로(case, 폴더, 뿌리=None):
     t = time.time()
-    r = subprocess.run([EXE, "만들기", os.path.join(시트, case, "front.png"), os.path.join(시트, case, "side.png"), "150", 폴더],
+    뿌리 = 뿌리 or 시트
+    r = subprocess.run([EXE, "만들기", os.path.join(뿌리, case, "front.png"), os.path.join(뿌리, case, "side.png"), "150", 폴더],
                        timeout=600)
     if r.returncode:
         raise RuntimeError(open(os.path.join(폴더, "오류.txt"), encoding="utf-8").read())

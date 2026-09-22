@@ -7,6 +7,9 @@
 
     상자(w, d, h)          원기둥(r, h)          원뿔(r아래, r위, h)
     구(r)                  토러스(R, r, 축="z" | "x" | "y")
+    타원체(w, d, h)        캡슐(r, h)            반구(w, d, h)            둥근상자(w, d, h, r)
+    각뿔대(w아래, w위, d아래, d위, h)     네모 단면이 곧게 변한다 — 사각뿔 · 쐐기 · 사다리꼴 기둥
+    관(R, r안, 길이, 축="z" | "x" | "y")   속 빈 원기둥
     로프트(점=[[x,y,z], ...], w=[...], d=[...], 이름="팔.왼")   중심선을 따라 타원 단면을 잇는다.
         단면은 중심선에 수직 · d 는 깊이(y) 방향 지름, w 는 그에 수직인 앞 그림 쪽 지름. 이름은 부위(= 키트 부품) 표시.
 
@@ -60,6 +63,44 @@ def 토러스(R, r, 축="z", x=0, y=0, z0=0, rz=0):
     return _놓기(t, x, y, z0, rz)
 
 
+def 타원체(w, d, h, x=0, y=0, z0=0, rz=0):
+    return _놓기(M.sphere(1, 둘레).scale([w / 2, d / 2, h / 2]).translate([0, 0, h / 2]), x, y, z0, rz)
+
+
+def 캡슐(r, h, x=0, y=0, z0=0, rz=0):
+    h = max(h, 2 * r)
+    return _놓기((M.sphere(r, 둘레).translate([0, 0, r]) + M.sphere(r, 둘레).translate([0, 0, h - r])).hull(), x, y, z0, rz)
+
+
+def 반구(w, d, h, x=0, y=0, z0=0, rz=0):
+    구 = M.sphere(1, 둘레).scale([w / 2, d / 2, h])
+    return _놓기(구 ^ M.cube([w + 2, d + 2, h + 1]).translate([-(w + 2) / 2, -(d + 2) / 2, 0]), x, y, z0, rz)
+
+
+def 각뿔대(w아래, w위, d아래, d위, h, x=0, y=0, z0=0, rz=0):
+    e = 1e-3                                                           # 꼭짓점이 한 점으로 모여도 hull 이 서게
+    P = [[sx * max(w아래, e) / 2, sy * max(d아래, e) / 2, 0] for sx in (-1, 1) for sy in (-1, 1)] +         [[sx * max(w위, e) / 2, sy * max(d위, e) / 2, h] for sx in (-1, 1) for sy in (-1, 1)]
+    return _놓기(M.hull_points(P), x, y, z0, rz)
+
+
+def 둥근상자(w, d, h, r, x=0, y=0, z0=0, rz=0):
+    r = min(r, w / 2, d / 2, h / 2) * 0.999
+    구들 = [M.sphere(r, 둘레).translate([sx * (w / 2 - r), sy * (d / 2 - r), r + sz * (h - 2 * r)])
+          for sx in (-1, 1) for sy in (-1, 1) for sz in (0, 1)]
+    return _놓기(M.batch_hull(구들), x, y, z0, rz)
+
+
+def 관(R, r안, 길이, 축="z", x=0, y=0, z0=0, rz=0):
+    t = M.cylinder(길이, R, R, 둘레) - M.cylinder(길이 + 2, r안, r안, 둘레).translate([0, 0, -1])
+    if 축 == "y":
+        t = t.translate([0, 0, -길이 / 2]).rotate([90, 0, 0]).translate([0, 0, R])
+    elif 축 == "x":
+        t = t.translate([0, 0, -길이 / 2]).rotate([0, 90, 0]).translate([0, 0, R])
+    else:
+        assert 축 == "z", 축
+    return _놓기(t, x, y, z0, rz)
+
+
 def 로프트(점, w, d, 이름="", 둘레=24):
     P = np.asarray(점, np.float64)
     w = np.maximum(np.asarray(w, np.float64), 0.2)
@@ -91,7 +132,7 @@ def 로프트(점, w, d, 이름="", 둘레=24):
     return M(m3.Mesh(vert_properties=np.ascontiguousarray(V, np.float32), tri_verts=np.ascontiguousarray(F, np.uint32)))
 
 
-어휘 = {f.__name__: f for f in (상자, 원기둥, 원뿔, 구, 토러스, 로프트)}
+어휘 = {f.__name__: f for f in (상자, 원기둥, 원뿔, 구, 토러스, 타원체, 캡슐, 반구, 각뿔대, 둥근상자, 관, 로프트)}
 
 
 def _값(n):
@@ -118,7 +159,19 @@ def 실행(줄):
     man = _풀기(ast.parse(줄.strip(), mode="eval").body)
     assert not man.is_empty() and man.status() == m3.Error.NoError, "빈 모양이거나 다양체가 아니다: " + 줄
     me = man.to_mesh()
-    return np.asarray(me.vert_properties, np.float64)[:, :3], np.asarray(me.tri_verts, np.int64)
+    return 정렬(np.asarray(me.vert_properties, np.float64)[:, :3], np.asarray(me.tri_verts, np.int64))
+
+
+def 정렬(V, F):
+    """정점 · 면 순서를 한 가지로 — hull 은 모양은 같아도 순서가 매번 달라(병렬) 해시가 흔들린다."""
+    V = np.round(V, 4)
+    o = np.lexsort(V.T[::-1])
+    inv = np.empty_like(o)
+    inv[o] = np.arange(len(o))
+    V, F = V[o], inv[F]
+    k = np.argmin(F, 1)                                                # 면마다 가장 작은 번호가 앞 (돌림 방향은 그대로)
+    F = np.take_along_axis(F, (k[:, None] + np.arange(3)) % 3, 1)
+    return V, F[np.lexsort(F.T[::-1])]
 
 
 def 해시(V, F):
@@ -131,6 +184,9 @@ def 검사():
           '토러스(R=48, r=24, 축="y")',
           "상자(w=90, d=90, h=150) - 상자(w=45, d=45, h=150, x=22.5, y=22.5)",
           "원뿔(r아래=52, r위=10, h=150) + 구(r=20, z0=135)",
+          "타원체(w=60, d=40, h=150) + 캡슐(r=10, h=80, x=50)",
+          '반구(w=100, d=80, h=40) + 각뿔대(w아래=60, w위=0, d아래=60, d위=0, h=90, z0=40) + 관(R=20, r안=12, 길이=30, 축="y", x=70)',
+          "둥근상자(w=80, d=60, h=150, r=10)",
           '로프트(점=[[0,0,0],[0,0,60],[0,0,120]], w=[40,20,30], d=[30,15,20], 이름="몸통") + 로프트(점=[[15,0,100],[60,0,110]], w=[10,8], d=[10,8], 이름="팔.왼")']
     for 줄 in 줄들:
         V, F = 실행(줄)

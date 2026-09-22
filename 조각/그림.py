@@ -76,12 +76,21 @@ def 후보들(앞, 옆, 키):
     out.append(("구", "구(r=%s, %s)" % (r1(h / 2), 놓기)))
     s45 = (w + d) / 2 / np.sqrt(2)
     out.append(("45도 상자", "상자(w=%s, d=%s, h=%s, %s, rz=45)" % (r1(s45), r1(s45), r1(h), 놓기)))
-    for 축, m, f in (("y", 앞, fa), ("x", 옆, fo)):                 # 구멍이 보이는 판 = 토러스 축 방향
+    out.append(("타원체", "타원체(w=%s, d=%s, h=%s, %s)" % (r1(w), r1(d), r1(h), 놓기)))
+    out.append(("캡슐", "캡슐(r=%s, h=%s, %s)" % (r1((w + d) / 4), r1(h), 놓기)))
+    out.append(("반구", "반구(w=%s, d=%s, h=%s, %s)" % (r1(w), r1(d), r1(h), 놓기)))
+    (wa, wb), (da, db) = _곧은폭(앞, fa, z0, z1), _곧은폭(옆, fo, z0, z1)
+    out.append(("각뿔대", "각뿔대(w아래=%s, w위=%s, d아래=%s, d위=%s, h=%s, %s)" % (r1(wa), r1(wb), r1(da), r1(db), r1(h), 놓기)))
+    모 = (_모서리(앞, fa) + _모서리(옆, fo)) / 2
+    if 모 > 1.0:
+        out.append(("둥근상자", "둥근상자(w=%s, d=%s, h=%s, r=%s, %s)" % (r1(w), r1(d), r1(h), r1(모), 놓기)))
+    for 축, m, f, 길이 in (("y", 앞, fa, d), ("x", 옆, fo, w)):       # 구멍이 보이는 판 = 토러스 · 관 축 방향
         hole = ndimage.binary_fill_holes(m) & ~m
         if hole.sum() > 50:
             hz = f.범위(hole)
             Ro, Ri = h / 2, (hz[3] - hz[2]) / 2
             out.append(("토러스", '토러스(R=%s, r=%s, 축="%s", %s)' % (r1((Ro + Ri) / 2), r1((Ro - Ri) / 2), 축, 놓기)))
+            out.append(("관", '관(R=%s, r안=%s, 길이=%s, 축="%s", %s)' % (r1(Ro), r1(Ri), r1(길이), 축, 놓기)))
     la, na = ndimage.label(앞)
     lo, no = ndimage.label(옆)
     if na == 2 and no in (1, 2):                                 # 두 덩어리 — 짝짓기가 여럿일 수 있다
@@ -243,6 +252,21 @@ def 층타원(앞, 옆, 키, 층수=60):
             토막.append("로프트(점=[[%.1f, %.1f, %.2f], [%.1f, %.1f, %.2f]], w=[%.1f, %.1f], d=[%.1f, %.1f])"
                       % (x, y, z0, x, y, z1, 너비, 너비, 깊이, 깊이))
     return " + ".join(토막) if 토막 else None
+
+
+def _곧은폭(m, f, z0, z1):
+    """높이마다 폭(화소 수)에 직선 -> (바닥 폭, 꼭대기 폭) mm. 각뿔대 재기."""
+    rows = np.nonzero(m.any(1))[0]
+    k, b = np.polyfit((f.bot - rows - 0.5) * f.s, m[rows].sum(1) * f.s, 1)
+    return max(k * z0 + b, 0.0), max(k * z1 + b, 0.0)
+
+
+def _모서리(m, f):
+    """맨 위에서 몇 줄 내려가야 폭이 다 차나 -> 둥근 모서리 반지름 mm (네모면 0 근처)."""
+    rows = np.nonzero(m.any(1))[0]
+    폭 = m[rows].sum(1)
+    k = int(np.argmax(폭 >= 폭.max() - 1))
+    return k * f.s
 
 
 def 대보기(줄, 앞, 옆, 키):
