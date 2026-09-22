@@ -43,6 +43,18 @@ cd 조각
 pyinstaller --onefile --windowed --name 조각 --add-data "ui;ui" --add-binary "cpp/sculpt.dll;cpp" --collect-submodules trimesh --collect-submodules skimage.measure --hidden-import scipy.spatial app.py
 ```
 
+## 벤치 (`벤치/`)
+
+조각 메시(mm)를 art2real `원화3d` 벤치(도형 11 · 마네킹 7 · 실물 28)의 자로 잰다. 채점 코드와 정답은 `원화3d` 에 있어 공개 저장소만으로는 안 돈다.
+
+| 파일 | 하는 일 |
+|---|---|
+| `어댑터.py` | 좌표 맞추기(조각 정면 -y → 벤치 정면 +y · 키 1 로 앉힘) · 3D IoU(속 채움 두 규약) · 앞 · 옆 실루엣 IoU |
+
+```
+python 벤치/어댑터.py 검사     # 정답 왕복 12 장 = 1.000 · 축을 틀리면 떨어진다 -> 벤치/out/어댑터_검사.png
+```
+
 ## 외부 코드
 
 - [three.js](https://threejs.org) r160 — MIT (`조각/ui/lib/LICENSE-three.txt`)
