@@ -130,7 +130,7 @@ def 검사():
     print("검사 통과 — 파이썬 = C++ (최대 %.1e mm) · 자국 수 같음 · 재생 해시 같음 · 최대 변위 %.1f mm" % (max(최대), 움직임))
 
     # 속도 — 큰 메시
-    p = r"G:\art2real\원화3d\out\결과물\오메가몬\결과.ply"
+    p = os.path.join(HERE, "예제", "오메가몬_형태.ply")          # 저장소에는 없다 — 있을 때만 잰다
     if os.path.exists(p):
         import trimesh
         m = trimesh.load(p, force="mesh", process=True)
