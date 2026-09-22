@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>조각</title>
+<style>
+:root{--bg:#f2f2f7;--card:rgba(255,255,255,.86);--line:#e5e5ea;--ink:#1c1c1e;--sub:#8e8e93;--blue:#007aff;--yellow:#ffcc00;--green:#34c759;--red:#ff3b30}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);font-family:"Malgun Gothic","Apple SD Gothic Neo",system-ui,sans-serif;color:var(--ink);user-select:none}
+#view{position:fixed;inset:0}
+.glass{position:fixed;background:var(--card);backdrop-filter:blur(18px);border:1px solid rgba(255,255,255,.9);border-radius:18px;box-shadow:0 8px 30px rgba(0,0,0,.08)}
+.top{left:14px;right:14px;top:12px;height:50px;display:flex;align-items:center;gap:10px;padding:0 14px}
+.logo{font-weight:700;font-size:17px}
+.sp{flex:1}
+.btn{font-size:13px;padding:7px 13px;border-radius:10px;background:#f2f2f7;border:0;cursor:pointer;color:var(--ink)}
+.btn:hover{background:#e8e8ee}.btn.p{background:var(--blue);color:#fff}
+.left{left:14px;top:74px;width:230px;padding:14px}
+.ttl{font-size:13px;color:var(--sub);margin:8px 2px 6px;display:flex;justify-content:space-between}
+.brushes{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.brush{padding:9px 8px;border-radius:11px;background:#fff;border:1px solid var(--line);font-size:13px;cursor:pointer;text-align:left}
+.brush b{display:block;font-size:11px;color:var(--sub);font-weight:400}
+.brush.on{background:var(--ink);color:#fff;border-color:var(--ink)}.brush.on b{color:#bbb}
+.row{display:flex;align-items:center;justify-content:space-between;font-size:13px;margin:10px 2px 4px}
+.row span:last-child{font-variant-numeric:tabular-nums;font-weight:700}
+input[type=range]{width:100%;accent-color:var(--blue)}
+.tog{display:flex;align-items:center;gap:8px;font-size:13px;margin:10px 2px;cursor:pointer}
+.tog input{accent-color:var(--blue);width:16px;height:16px}
+.help{font-size:11px;color:var(--sub);line-height:1.6;margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+.help kbd{background:#eee;border-radius:4px;padding:0 5px;font-family:inherit;font-size:11px}
+.right{right:14px;top:74px;width:300px;padding:14px}
+.kv{display:flex;justify-content:space-between;font-size:13px;padding:7px 0;border-bottom:1px solid #f0f0f3}
+.kv:last-child{border:0}
+.hash{font-family:Consolas,monospace;font-size:13px}
+.ok{color:var(--green);font-weight:700}.bad{color:var(--red);font-weight:700}
+.tl{left:14px;right:14px;bottom:12px;height:176px;padding:10px 14px}
+.tlhead{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.pos{font-size:13px}.pos b{font-size:17px}
+.cards{display:flex;gap:6px;overflow-x:auto;padding-bottom:6px;height:112px}
+.cd{flex:none;width:104px;height:100px;border-radius:12px;background:#fff;border:1px solid var(--line);padding:7px;font-size:11px;cursor:pointer;position:relative}
+.cd .nm{font-weight:700;font-size:13px;margin:2px 0}
+.cd .d{color:var(--sub);line-height:1.45}
+.cd .who{position:absolute;top:6px;right:6px;font-size:11px;padding:1px 5px;border-radius:5px;color:#fff;background:#ff9f0a}
+.cd.cur{border:2px solid var(--blue);box-shadow:0 4px 12px rgba(0,0,0,.10)}
+.cd.fut{opacity:.35}
+.cd.zero{width:70px;display:grid;place-items:center;color:var(--sub)}
+#toast{position:fixed;left:50%;top:74px;transform:translateX(-50%);background:#1c1c1e;color:#fff;font-size:13px;padding:8px 14px;border-radius:10px;opacity:0;transition:opacity .3s;pointer-events:none}
+#busy{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);font-size:13px;color:var(--sub);display:none}
+</style>
+<script type="importmap">{"imports":{"three":"./lib/three.module.min.js"}}</script>
+</head><body>
+<div id="view"></div>
+<div class="glass top">
+  <span class="logo">◐ 조각</span>
+  <span style="font-size:13px;color:var(--sub)">붓질 · 타임라인 · 재생 검증 — 최소판</span>
+  <span class="sp"></span>
+  <button class="btn" id="bNew">새 구</button>
+  <button class="btn" id="bOpen">메시 열기</button>
+  <button class="btn" id="bJOpen">저널 열기</button>
+  <button class="btn" id="bSave">저널 저장</button>
+  <button class="btn p" id="bExport">STL 내보내기</button>
+</div>
+<div class="glass left">
+  <div class="ttl"><span>붓</span><span>1–5</span></div>
+  <div class="brushes" id="brushes"></div>
+  <div class="row"><span>반지름</span><span id="rV">8.0 mm</span></div>
+  <input type="range" id="rad" min="1" max="40" step="0.5" value="8">
+  <div class="row"><span>세기</span><span id="sV">0.50</span></div>
+  <input type="range" id="str" min="0.05" max="1" step="0.05" value="0.5">
+  <label class="tog"><input type="checkbox" id="inv"> 반대로 (파기) <span style="color:var(--sub);font-size:11px">· Ctrl 로 잠깐 뒤집기</span></label>
+  <label class="tog"><input type="checkbox" id="sym"> 대칭 X</label>
+  <label class="tog"><input type="checkbox" id="wire"> 와이어프레임</label>
+  <div class="help">
+    <kbd>왼쪽</kbd> 모델 위 = 붓질 · 바깥 = 돌리기<br>
+    <kbd>오른쪽</kbd> 이동 · <kbd>휠</kbd> 확대<br>
+    <kbd>Ctrl</kbd> 누르고 칠하면 반대로 · <kbd>D</kbd> 반대로 켜고 끄기<br>
+    <kbd>[</kbd> <kbd>]</kbd> 반지름 · <kbd>X</kbd> 대칭<br>
+    <kbd>Ctrl+Z</kbd> 한 단계 뒤 · <kbd>F</kbd> 화면 맞춤
+  </div>
+</div>
+<div class="glass right">
+  <div class="ttl" style="margin-top:0"><span>지금 상태</span></div>
+  <div class="kv"><span>단계</span><b id="iK">0 / 0</b></div>
+  <div class="kv"><span>정점 · 면</span><b id="iVF">-</b></div>
+  <div class="kv"><span>해시 (화면)</span><span class="hash" id="iH">-</span></div>
+  <div class="kv"><span>마지막 획</span><b id="iLast">-</b></div>
+  <div class="ttl"><span>재생 검증</span><span>스크립트 = 화면?</span></div>
+  <div class="kv"><span>스크립트 재생 해시</span><span class="hash" id="iSH">-</span></div>
+  <div class="kv"><span>판정</span><span id="iOK">-</span></div>
+  <button class="btn p" id="bVerify" style="width:100%;margin-top:8px">지금 단계까지 스크립트로 재생해 보기</button>
+  <div class="help">붓질은 화면 좌표가 아니라 <b>모델 위 좌표(mm)</b>로 기록된다. 그래서 카메라를 돌려도 저널을 다시 틀면 같은 결과가 나와야 한다. 위 버튼이 그것을 잰다.</div>
+</div>
+<div class="glass tl">
+  <div class="tlhead">
+    <button class="btn" id="bFirst">⏮</button><button class="btn" id="bPrev">◀</button>
+    <button class="btn p" id="bPlay">▶ 타임랩스</button><button class="btn" id="bNext">▶</button><button class="btn" id="bLast">⏭</button>
+    <span class="pos" style="margin-left:6px"><b id="tK">0</b> / <span id="tN">0</span> 단계</span>
+    <span class="sp"></span>
+    <span style="font-size:11px;color:var(--sub)">카드를 누르면 그 단계로 되감는다 · 과거에서 새로 칠하면 뒤 단계는 버린다</span>
+  </div>
+  <div class="cards" id="cards"></div>
+</div>
+<div id="toast"></div><div id="busy">계산 중…</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from './lib/OrbitControls.js';
+
+const 붓들 = [["그리기","밀어내기"],["부풀리기","둥글게"],["매끈","고르기"],["잡기","끌기"],["주름","홈 파기"]];
+let 붓 = "그리기";
+const $ = id => document.getElementById(id);
+const toast = (t) => { const e=$("toast"); e.textContent=t; e.style.opacity=1; clearTimeout(e._t); e._t=setTimeout(()=>e.style.opacity=0,2200); };
+
+// ---------------------------------------------------------------- 3D
+const view = $("view");
+const renderer = new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.setSize(innerWidth, innerHeight);
+renderer.setClearColor(0xeef0f4);
+view.appendChild(renderer.domElement);
+const scene = new THREE.Scene();
+const cam = new THREE.PerspectiveCamera(35, innerWidth/innerHeight, 1, 5000);
+cam.position.set(0, -260, 60); cam.up.set(0,0,1);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8f99, 1.1));
+const dl = new THREE.DirectionalLight(0xffffff, 1.6); dl.position.set(-120,-200,220); scene.add(dl);
+const dl2 = new THREE.DirectionalLight(0xffffff, 0.5); dl2.position.set(150,120,-60); scene.add(dl2);
+const controls = new OrbitControls(cam, renderer.domElement);
+controls.mouseButtons = {LEFT: THREE.MOUSE.ROTATE, MIDDLE: THREE.MOUSE.PAN, RIGHT: THREE.MOUSE.PAN};
+controls.enableDamping = true;
+
+const geo = new THREE.BufferGeometry();
+const mat = new THREE.MeshStandardMaterial({color:0xd9dce3, roughness:.55, metalness:0});
+const mesh = new THREE.Mesh(geo, mat); scene.add(mesh);
+const wmat = new THREE.MeshBasicMaterial({color:0x5b6170, wireframe:true, transparent:true, opacity:.18});
+const wmesh = new THREE.Mesh(geo, wmat); wmesh.visible=false; scene.add(wmesh);
+const ring = new THREE.Mesh(new THREE.RingGeometry(0.93,1,64), new THREE.MeshBasicMaterial({color:0x007aff, side:THREE.DoubleSide, transparent:true, opacity:.9, depthTest:false}));
+ring.renderOrder=9; ring.visible=false; scene.add(ring);
+
+function 메시싣기(m, 맞춤=false){
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(m.V, 3));
+  geo.setIndex(m.F);
+  geo.computeVertexNormals(); geo.computeBoundingSphere();
+  $("iVF").textContent = (m.V.length/3).toLocaleString()+" · "+(m.F.length/3).toLocaleString();
+  상태(m);
+  if (맞춤) 화면맞춤();
+}
+function 화면맞춤(){ const s=geo.boundingSphere; controls.target.copy(s.center); cam.position.copy(s.center).add(new THREE.Vector3(0,-s.radius*6.2,s.radius*1.2)); controls.update(); }
+function 상태(m){ $("iK").textContent = m.k+" / "+m.n; $("iH").textContent = m.해시; $("tK").textContent=m.k; $("tN").textContent=m.n; $("iSH").textContent="-"; $("iOK").textContent="-"; }
+
+// ---------------------------------------------------------------- 붓 판
+function 붓판(){
+  $("brushes").innerHTML = 붓들.map(([n,d],i)=>`<div class="brush ${n==붓?'on':''}" data-b="${n}">${i+1}. ${n}<b>${d}</b></div>`).join("");
+  document.querySelectorAll(".brush").forEach(e=>e.onclick=()=>{붓=e.dataset.b; 붓판();});
+}
+붓판();
+const rad=()=>parseFloat($("rad").value), str=()=>parseFloat($("str").value);
+$("rad").oninput=()=>{$("rV").textContent=rad().toFixed(1)+" mm"}; $("str").oninput=()=>{$("sV").textContent=str().toFixed(2)};
+$("wire").onchange=()=>wmesh.visible=$("wire").checked;
+
+// ---------------------------------------------------------------- 붓질
+const ray = new THREE.Raycaster(); const ndc = new THREE.Vector2();
+function 맞춤(e){ const r=renderer.domElement.getBoundingClientRect(); ndc.set(((e.clientX-r.left)/r.width)*2-1, -((e.clientY-r.top)/r.height)*2+1); ray.setFromCamera(ndc, cam); const h=ray.intersectObject(mesh,false); return h.length?h[0]:null; }
+let 획중=false, 대기=[], 보내는중=false, 잡기평면=null, 반전=false;
+async function 흘려보내기(){
+  if (보내는중 || !대기.length) return;
+  보내는중=true; const 묶음=대기; 대기=[];
+  const r = await pywebview.api.점들(묶음);
+  const pos = geo.attributes.position;
+  for (let j=0;j<r.idx.length;j++){ const i=r.idx[j]; pos.setXYZ(i, r.pos[3*j], r.pos[3*j+1], r.pos[3*j+2]); }
+  pos.needsUpdate=true; geo.computeVertexNormals();
+  보내는중=false;
+  if (대기.length) 흘려보내기();
+}
+renderer.domElement.addEventListener('pointerdown', async (e)=>{
+  if (e.button!==0) return;
+  const h = 맞춤(e); if (!h) return;          // 모델 밖 = OrbitControls 가 돌린다
+  e.stopImmediatePropagation(); controls.enabled=false; 획중=true; 반전=($("inv").checked !== e.ctrlKey);
+  renderer.domElement.setPointerCapture(e.pointerId);
+  await pywebview.api.획_시작(붓, rad(), str(), $("sym").checked, 반전);
+  if (붓=="잡기"){ const n=new THREE.Vector3(); cam.getWorldDirection(n); 잡기평면=new THREE.Plane().setFromNormalAndCoplanarPoint(n, h.point); }
+  대기.push([h.point.x,h.point.y,h.point.z]); 흘려보내기();
+}, {capture:true});
+renderer.domElement.addEventListener('pointermove', (e)=>{
+  const h = 맞춤(e);
+  if (h){ ring.visible=true; ring.position.copy(h.point); const n=h.face.normal.clone().transformDirection(mesh.matrixWorld); ring.lookAt(h.point.clone().add(n)); ring.scale.setScalar(rad()); ring.material.color.set(($("inv").checked !== e.ctrlKey)?0xff3b30:0x007aff);} else ring.visible=false;
+  if (!획중) return;
+  if (붓=="잡기"){ const r=renderer.domElement.getBoundingClientRect(); ndc.set(((e.clientX-r.left)/r.width)*2-1, -((e.clientY-r.top)/r.height)*2+1); ray.setFromCamera(ndc,cam); const p=new THREE.Vector3(); if (ray.ray.intersectPlane(잡기평면,p)) 대기.push([p.x,p.y,p.z]); }
+  else if (h) 대기.push([h.point.x,h.point.y,h.point.z]);
+  흘려보내기();
+});
+window.addEventListener('pointerup', async ()=>{
+  if (!획중) return; 획중=false; controls.enabled=true;
+  while (보내는중 || 대기.length){ await 흘려보내기(); await new Promise(r=>setTimeout(r,10)); }
+  const r = await pywebview.api.획_끝();
+  if (!r) return;
+  $("iLast").textContent = r.초+" 초"; 상태({k:r.k,n:r.n,해시:r.해시}); await 카드그리기();
+});
+
+// ---------------------------------------------------------------- 타임라인
+async function 카드그리기(){
+  const cs = await pywebview.api.카드들(); const k = parseInt($("tK").textContent);
+  $("cards").innerHTML = `<div class="cd zero ${k==0?'cur':''}" data-i="0">0<br>시작</div>` + cs.map(c=>
+    `<div class="cd ${c.i==k?'cur':''} ${c.i>k?'fut':''}" data-i="${c.i}"><span class="who">사람</span><div class="nm">${c.i}. ${c.붓}${c.반전?' −':''}</div>
+     <div class="d">반지름 ${c.반지름} · 세기 ${c.세기}<br>자국 ${c.자국}${c.대칭?' · 대칭':''}<br><span class="hash">${c.해시.slice(0,8)}</span></div></div>`).join("");
+  document.querySelectorAll(".cd").forEach(e=>e.onclick=()=>되감기(parseInt(e.dataset.i)));
+  const cur=document.querySelector(".cd.cur"); if(cur) cur.scrollIntoView({inline:"nearest",block:"nearest"});
+}
+async function 되감기(k){ $("busy").style.display="block"; const m=await pywebview.api.되감기(k); $("busy").style.display="none"; 메시싣기(m); await 카드그리기(); }
+const 지금=()=>parseInt($("tK").textContent), 끝=()=>parseInt($("tN").textContent);
+$("bFirst").onclick=()=>되감기(0); $("bLast").onclick=()=>되감기(끝());
+$("bPrev").onclick=()=>되감기(Math.max(0,지금()-1)); $("bNext").onclick=()=>되감기(Math.min(끝(),지금()+1));
+let 재생중=false;
+$("bPlay").onclick=async ()=>{
+  if (재생중){ 재생중=false; return; }
+  재생중=true; $("bPlay").textContent="■ 멈춤";
+  for (let k=0;k<=끝() && 재생중;k++){ await 되감기(k); await new Promise(r=>setTimeout(r,450)); }
+  재생중=false; $("bPlay").textContent="▶ 타임랩스";
+};
+$("bVerify").onclick=async ()=>{
+  $("iOK").textContent="재생 중…";
+  const v = await pywebview.api.검증();
+  $("iSH").textContent=v.스크립트; $("iOK").innerHTML = v.같음 ? `<span class="ok">✓ 같음</span> (${v.단계}단계 · ${v.초}초)` : `<span class="bad">✗ 다름</span> 화면 ${v.화면}`;
+};
+
+// ---------------------------------------------------------------- 파일 · 키
+$("bNew").onclick=async()=>{ 메시싣기(await pywebview.api.새구(6), true); await 카드그리기(); };
+$("bOpen").onclick=async()=>{ const m=await pywebview.api.열기(); if(m){ 메시싣기(m,true); await 카드그리기(); toast(m.알림);} };
+$("bJOpen").onclick=async()=>{ const m=await pywebview.api.저널열기(); if(m){ 메시싣기(m,true); await 카드그리기(); toast("저널을 처음부터 다시 틀었다 — "+m.n+" 단계"); } };
+$("bSave").onclick=async()=>{ const p=await pywebview.api.저장(); if(p) toast("저장: "+p); };
+$("bExport").onclick=async()=>{ const p=await pywebview.api.내보내기(); if(p) toast("내보냄: "+p); };
+window.addEventListener('keydown', (e)=>{
+  if (e.target.tagName=="INPUT" && e.target.type!="checkbox") return;
+  if ("12345".includes(e.key) && !e.ctrlKey){ 붓=붓들[parseInt(e.key)-1][0]; 붓판(); }
+  if (e.key=="["){ $("rad").value=Math.max(1,rad()-1); $("rad").oninput(); }
+  if (e.key=="]"){ $("rad").value=Math.min(40,rad()+1); $("rad").oninput(); }
+  if (e.key=="d"||e.key=="D"){ $("inv").checked=!$("inv").checked; toast($("inv").checked?"반대로: 판다":"반대로 끔: 올린다"); }
+  if (e.key=="x"||e.key=="X"){ $("sym").checked=!$("sym").checked; toast("대칭 X "+($("sym").checked?"켬":"끔")); }
+  if (e.key=="f"||e.key=="F") 화면맞춤();
+  if (e.ctrlKey && (e.key=="z"||e.key=="Z")){ e.preventDefault(); if (지금()>0) 되감기(지금()-1); }
+});
+addEventListener('resize', ()=>{ cam.aspect=innerWidth/innerHeight; cam.updateProjectionMatrix(); renderer.setSize(innerWidth,innerHeight); });
+(function loop(){ controls.update(); renderer.render(scene,cam); requestAnimationFrame(loop); })();
+
+async function 시작(){ 메시싣기(await pywebview.api.새구(6), true); await 카드그리기(); }
+if (window.pywebview && window.pywebview.api) 시작(); else window.addEventListener('pywebviewready', 시작);
+</script>
+</body></html>
