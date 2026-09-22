@@ -11,7 +11,7 @@ html,body{margin:0;height:100%;overflow:hidden;background:var(--bg);font-family:
 .sp{flex:1}
 .btn{font-size:13px;padding:7px 13px;border-radius:10px;background:#f2f2f7;border:0;cursor:pointer;color:var(--ink)}
 .btn:hover{background:#e8e8ee}.btn.p{background:var(--blue);color:#fff}
-.left{left:14px;top:74px;width:230px;padding:14px}
+.left{left:14px;top:74px;width:230px;padding:14px;bottom:200px;overflow-y:auto}
 .ttl{font-size:13px;color:var(--sub);margin:8px 2px 6px;display:flex;justify-content:space-between}
 .brushes{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .brush{padding:9px 8px;border-radius:11px;background:#fff;border:1px solid var(--line);font-size:13px;cursor:pointer;text-align:left}
@@ -40,6 +40,10 @@ input[type=range]{width:100%;accent-color:var(--blue)}
 .cd.cur{border:2px solid var(--blue);box-shadow:0 4px 12px rgba(0,0,0,.10)}
 .cd.fut{opacity:.35}
 .cd.zero{width:70px;display:grid;place-items:center;color:var(--sub)}
+.cd.rm{background:#f4f1ff}.cd.rm .who{background:#5856d6}
+.tabs{display:flex;gap:4px;margin-left:10px}
+.tab{font-size:11px;padding:4px 9px;border-radius:8px;background:#f2f2f7;cursor:pointer}
+.tab.on{background:var(--ink);color:#fff}
 #toast{position:fixed;left:50%;top:74px;transform:translateX(-50%);background:#1c1c1e;color:#fff;font-size:13px;padding:8px 14px;border-radius:10px;opacity:0;transition:opacity .3s;pointer-events:none}
 #busy{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);font-size:13px;color:var(--sub);display:none}
 </style>
@@ -63,9 +67,13 @@ input[type=range]{width:100%;accent-color:var(--blue)}
   <input type="range" id="rad" min="1" max="40" step="0.5" value="8">
   <div class="row"><span>세기</span><span id="sV">0.50</span></div>
   <input type="range" id="str" min="0.05" max="1" step="0.05" value="0.5">
-  <label class="tog"><input type="checkbox" id="inv"> 반대로 (파기) <span style="color:var(--sub);font-size:11px">· Ctrl 로 잠깐 뒤집기</span></label>
+  <label class="tog"><input type="checkbox" id="inv"> 반대로 (파기)</label>
   <label class="tog"><input type="checkbox" id="sym"> 대칭 X</label>
   <label class="tog"><input type="checkbox" id="wire"> 와이어프레임</label>
+  <div class="ttl" style="margin-top:12px"><span>리메시</span><span>고르게 다시 깔기</span></div>
+  <div class="row" style="margin-top:4px"><span>간격</span><span id="gV">0.80 mm</span></div>
+  <input type="range" id="gap" min="0.3" max="3" step="0.05" value="0.8">
+  <button class="btn" id="bRemesh" style="width:100%;margin-top:6px">리메시 — 타임라인에 한 칸</button>
   <div class="help">
     <kbd>왼쪽</kbd> 모델 위 = 붓질 · 바깥 = 돌리기<br>
     <kbd>오른쪽</kbd> 이동 · <kbd>휠</kbd> 확대<br>
@@ -92,8 +100,9 @@ input[type=range]{width:100%;accent-color:var(--blue)}
     <button class="btn" id="bFirst">⏮</button><button class="btn" id="bPrev">◀</button>
     <button class="btn p" id="bPlay">▶ 타임랩스</button><button class="btn" id="bNext">▶</button><button class="btn" id="bLast">⏭</button>
     <span class="pos" style="margin-left:6px"><b id="tK">0</b> / <span id="tN">0</span> 단계</span>
+    <span class="tabs" id="tabs"></span>
     <span class="sp"></span>
-    <span style="font-size:11px;color:var(--sub)">카드를 누르면 그 단계로 되감는다 · 과거에서 새로 칠하면 뒤 단계는 버린다</span>
+    <span style="font-size:11px;color:var(--sub)">카드를 누르면 그 단계로 되감는다 · 과거에서 새로 칠하면 새 가지가 생긴다(원래 가지는 남는다)</span>
   </div>
   <div class="cards" id="cards"></div>
 </div>
@@ -154,6 +163,8 @@ function 붓판(){
 const rad=()=>parseFloat($("rad").value), str=()=>parseFloat($("str").value);
 $("rad").oninput=()=>{$("rV").textContent=rad().toFixed(1)+" mm"}; $("str").oninput=()=>{$("sV").textContent=str().toFixed(2)};
 $("wire").onchange=()=>wmesh.visible=$("wire").checked;
+$("gap").oninput=()=>{$("gV").textContent=parseFloat($("gap").value).toFixed(2)+" mm"};
+$("bRemesh").onclick=async()=>{ $("busy").style.display="block"; $("busy").textContent="리메시 중…"; const m=await pywebview.api.리메시(parseFloat($("gap").value)); $("busy").style.display="none"; $("busy").textContent="계산 중…"; 메시싣기(m); await 카드그리기(); toast(m.알림); };
 
 // ---------------------------------------------------------------- 붓질
 const ray = new THREE.Raycaster(); const ndc = new THREE.Vector2();
@@ -197,9 +208,14 @@ window.addEventListener('pointerup', async ()=>{
 // ---------------------------------------------------------------- 타임라인
 async function 카드그리기(){
   const cs = await pywebview.api.카드들(); const k = parseInt($("tK").textContent);
-  $("cards").innerHTML = `<div class="cd zero ${k==0?'cur':''}" data-i="0">0<br>시작</div>` + cs.map(c=>
+  $("cards").innerHTML = `<div class="cd zero ${k==0?'cur':''}" data-i="0">0<br>시작</div>` + cs.map(c=> c.붓=="리메시" ?
+    `<div class="cd rm ${c.i==k?'cur':''} ${c.i>k?'fut':''}" data-i="${c.i}"><span class="who">명령</span><div class="nm">${c.i}. 리메시</div>
+     <div class="d">간격 ${c.간격} mm<br>정점 ${Number(c.정점).toLocaleString()}<br><span class="hash">${c.해시.slice(0,8)}</span></div></div>` :
     `<div class="cd ${c.i==k?'cur':''} ${c.i>k?'fut':''}" data-i="${c.i}"><span class="who">사람</span><div class="nm">${c.i}. ${c.붓}${c.반전?' −':''}</div>
      <div class="d">반지름 ${c.반지름} · 세기 ${c.세기}<br>자국 ${c.자국}${c.대칭?' · 대칭':''}<br><span class="hash">${c.해시.slice(0,8)}</span></div></div>`).join("");
+  const g = await pywebview.api.가지목록();
+  $("tabs").innerHTML = g.가지.length < 2 ? "" : g.가지.map(b=>`<span class="tab ${b.i==g.지금?'on':''}" data-g="${b.i}">가지 ${b.i+1} · ${b.n}</span>`).join("");
+  document.querySelectorAll(".tab").forEach(e=>e.onclick=async()=>{ $("busy").style.display="block"; const m=await pywebview.api.가지고르기(parseInt(e.dataset.g)); $("busy").style.display="none"; 메시싣기(m); await 카드그리기(); });
   document.querySelectorAll(".cd").forEach(e=>e.onclick=()=>되감기(parseInt(e.dataset.i)));
   const cur=document.querySelector(".cd.cur"); if(cur) cur.scrollIntoView({inline:"nearest",block:"nearest"});
 }

@@ -16,6 +16,7 @@ import time
 import numpy as np
 
 import engine as E
+import remesh as RM
 try:                                   # C++ 엔진이 있으면 그것을 쓴다 (같은 결과 · 수백 배 빠르다 — engine_cpp.py 검사)
     import engine_cpp as EC
     엔진, 엔진이름 = EC.조각C, "C++"
@@ -34,13 +35,37 @@ class API:
     def _새엔진(self, V=None, F=None):
         if V is None:
             V, F = E.기본메시(세분=self.기본.get("세분", 6))
+        self.V기본, self.F기본 = np.asarray(V, np.float64), np.asarray(F)
         self.e = 엔진(V, F)
-        self.전체 = []                    # 타임라인 전체 (되감아도 남는다)
+        self.가지들 = [[]]                 # 가지마다 칸 목록 (붓 획 · 리메시). 과거에서 새로 칠하면 새 가지
+        self.지금가지 = 0
         self.k = 0                        # 지금 보이는 단계
+
+    @property
+    def 전체(self):
+        return self.가지들[self.지금가지]
+
+    @전체.setter
+    def 전체(self, v):
+        self.가지들[self.지금가지] = v
+
+    def _갈래(self):
+        """과거 단계에서 새로 칠하려 하면 **새 가지**를 낸다 — 원래 가지는 그대로 남는다."""
+        if self.k < len(self.전체):
+            self.가지들.append(list(self.전체[:self.k]))
+            self.지금가지 = len(self.가지들) - 1
+
+    def 가지목록(self):
+        return {"지금": self.지금가지, "가지": [{"i": i, "n": len(g)} for i, g in enumerate(self.가지들)]}
+
+    def 가지고르기(self, i):
+        self.지금가지 = int(i)
+        return self.되감기(len(self.전체))
 
     def _메시(self):
         return {"V": np.round(self.e.V, 5).ravel().tolist(), "F": self.e.F.ravel().tolist(),
-                "해시": self.e.해시(), "k": self.k, "n": len(self.전체), "엔진": 엔진이름}
+                "해시": self.e.해시(), "k": self.k, "n": len(self.전체), "엔진": 엔진이름,
+                "가지": self.지금가지, "가지수": len(self.가지들)}
 
     def 새구(self, 세분=6):
         self.기본 = {"종류": "구", "세분": int(세분)}
@@ -62,10 +87,35 @@ class API:
         out["알림"] = "정점 %d · 붓은 정점만 옮긴다 — 정점이 성기면 붓이 거칠게 먹는다" % len(V)
         return out
 
+    # ------------------------------------------------------------ 재생 (붓 획 + 리메시)
+    def _재생(self, 칸들):
+        """처음 메시에서 칸들을 차례로 다시 튼다. 리메시 칸을 만나면 그 자리에서 메시를 새로 깔고 이어 간다."""
+        e = 엔진(self.V기본, self.F기본)
+        for g in 칸들:
+            if g["붓"] == "리메시":
+                V, F = RM.리메시(e.V, e.F, g["간격"])
+                e = 엔진(V, F)
+            else:
+                E.재생한획(e, g)
+        e.저널 = []
+        return e
+
+    def 리메시(self, 간격):
+        self._갈래()
+        t = time.time()
+        V, F = RM.리메시(self.e.V, self.e.F, float(간격))
+        self.e = 엔진(V, F)
+        기록 = {"붓": "리메시", "간격": float(간격), "반지름": float(간격), "세기": 0.0, "대칭": False, "반전": False,
+               "점": [], "자국수": 0, "정점": int(len(V)), "해시": self.e.해시()}
+        self.전체.append(기록)
+        self.k = len(self.전체)
+        out = self._메시()
+        out["알림"] = "리메시 %.2f mm — 정점 %d · %.1f초" % (float(간격), len(V), time.time() - t)
+        return out
+
     # ------------------------------------------------------------ 획
     def 획_시작(self, 붓, 반지름, 세기, 대칭, 반전):
-        if self.k < len(self.전체):                  # 과거에서 새로 칠하면 뒤는 버린다 (갈래 최소판)
-            self.전체 = self.전체[:self.k]
+        self._갈래()
         self.e.저널 = list(self.전체)
         self.e.획_시작(붓, 반지름, 세기, 대칭, 반전)
         self._t = time.time()
@@ -86,11 +136,13 @@ class API:
         self.전체.append(기록)
         self.k = len(self.전체)
         return {"k": self.k, "n": len(self.전체), "해시": 기록["해시"], "카드": self._카드(기록, self.k),
+                "가지": self.지금가지, "가지수": len(self.가지들),
                 "초": round(time.time() - self._t, 2)}
 
     def _카드(self, 기록, i):
         return {"i": i, "붓": 기록["붓"], "자국": 기록["자국수"], "점": len(기록["점"]), "반지름": 기록["반지름"],
-                "세기": 기록["세기"], "대칭": 기록["대칭"], "반전": 기록["반전"], "해시": 기록["해시"]}
+                "세기": 기록["세기"], "대칭": 기록["대칭"], "반전": 기록["반전"], "해시": 기록["해시"],
+                "간격": 기록.get("간격"), "정점": 기록.get("정점")}
 
     def 카드들(self):
         return [self._카드(g, i + 1) for i, g in enumerate(self.전체)]
@@ -98,21 +150,14 @@ class API:
     # ------------------------------------------------------------ 타임라인
     def 되감기(self, k):
         k = int(max(0, min(k, len(self.전체))))
-        if hasattr(self.e, "처음으로"):             # C++ — 엔진을 다시 짓지 않고 처음으로 돌려 다시 튼다
-            self.e.처음으로(); self.e.저널 = []
-            for 획 in self.전체[:k]:
-                E.재생한획(self.e, 획)
-        else:
-            self.e = E.재생(self.전체[:k], self.e.V0, self.e.F)
+        self.e = self._재생(self.전체[:k])           # ponytail: 매번 처음부터 — 단계가 많아 느려지면 스냅숏
         self.k = k
         return self._메시()
 
     def 검증(self):
         """지금 단계까지를 **새 엔진**으로 스크립트 재생 -> 화면에서 칠한 결과와 해시 비교."""
         t = time.time()
-        r = 엔진(self.e.V0, self.e.F)                # 새 엔진 — 저널만 보고 처음부터
-        for 획 in json.loads(json.dumps(self.전체[:self.k])):
-            E.재생한획(r, 획)
+        r = self._재생(json.loads(json.dumps(self.전체[:self.k])))     # 새 엔진 — 저널만 보고 처음부터
         return {"화면": self.e.해시(), "스크립트": r.해시(), "같음": r.해시() == self.e.해시(),
                 "단계": self.k, "초": round(time.time() - t, 2), "엔진": 엔진이름}
 
@@ -123,8 +168,8 @@ class API:
         if not r:
             return None
         p = r if isinstance(r, str) else r[0]
-        json.dump({"기본": self.기본 if self.기본["종류"] == "파일" else self.기본,
-                   "저널": self.전체}, open(p, "w", encoding="utf-8"), ensure_ascii=False)
+        json.dump({"기본": self.기본, "저널": self.전체, "가지들": self.가지들, "지금가지": self.지금가지},
+                  open(p, "w", encoding="utf-8"), ensure_ascii=False)
         return p
 
     def 저널열기(self):
@@ -139,7 +184,8 @@ class API:
             self._새엔진(np.array(b["V"]), np.array(b["F"]))
         else:
             self._새엔진()
-        self.전체 = j["저널"]
+        self.가지들 = j.get("가지들") or [j["저널"]]
+        self.지금가지 = min(j.get("지금가지", 0), len(self.가지들) - 1)
         return self.되감기(len(self.전체))
 
     def 내보내기(self):
@@ -168,8 +214,15 @@ def 점검():
     a.되감기(2); assert a.검증()["같음"]
     a.되감기(4); assert a.e.해시() == h4, "되감았다 돌아오면 같아야 한다"
     a.되감기(1); a.획_시작("매끈", 20, 0.5, False, False); a.점들(선); a.획_끝()
-    assert len(a.전체) == 2 and a.검증()["같음"], "과거에서 칠하면 뒤를 버리고 새로"
-    print("점검 통과 — 획 넷 · 검증 · 되감기 · 과거에서 새로 칠하기", v)
+    assert len(a.전체) == 2 and a.검증()["같음"], "과거에서 칠하면 새 가지"
+    assert len(a.가지들) == 2 and len(a.가지들[0]) == 4, "원래 가지는 네 칸 그대로 남는다"
+    a.가지고르기(0); assert a.e.해시() == h4, "원래 가지로 돌아가면 원래 결과"
+    a.가지고르기(1)
+    a.리메시(1.5); a.획_시작("그리기", 10, 0.5, True, False); a.점들(선); a.획_끝()
+    h = a.e.해시()
+    assert len(a.전체) == 4 and a.검증()["같음"], "리메시 뒤 붓질까지 재생"
+    a.되감기(2); a.되감기(4); assert a.e.해시() == h, "리메시를 건너 되감았다 돌아와도 같다"
+    print("점검 통과 — 획 넷 · 검증 · 되감기 · 갈래(원래 가지 보존) · 리메시 뒤 재생", v)
 
 
 def main():
