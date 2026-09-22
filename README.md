@@ -18,14 +18,14 @@
 | `engine_cpp.py` | C++ 판을 파이썬에서 부르고, 정답기와 정점 차이를 잰다 |
 | `그림.py` | 그림 두 장 → 카탈로그 후보 → 입력 그림과 대 보고 고름(정답 모름) · 동점은 사람 몫. `조각.exe 만들기 앞 옆 키 폴더` |
 | `키트.py` | 모양을 앞 그림 부위로 잘라 부품 · 몸통 쪽 끼움 핀(공차 0.15 mm) · 출력 판정 Q1~Q6 · 조립/분해 그림. `조각.exe 키트 앞 옆 키 폴더` |
-| `dsl.py` | 조형 DSL v0 — 상자 · 원기둥 · 원뿔 · 구 · 토러스를 + · - 로. 한 줄 = 저널 한 칸 (`API.DSL`) |
+| `dsl.py` | 조형 DSL — 상자 · 원기둥 · 원뿔 · 구 · 토러스 · 타원체 · 캡슐 · 반구 · 각뿔대 · 둥근상자 · 관 · 로프트를 + · - 로. 한 줄 = 저널 한 칸 (`API.DSL`) |
 | `remesh.py` | 복셀 거리장 + 마칭 큐브로 고르게 다시 깔기 |
 | `app.py` · `ui/` | 창(pywebview + three.js). 마우스를 **모델 위 좌표(mm)** 로 바꿔 엔진을 부른다 |
 
 ### 돌리기
 
 ```
-pip install numpy scipy trimesh scikit-image pywebview
+pip install numpy scipy trimesh scikit-image pywebview manifold3d
 python 조각/app.py              # 창
 python 조각/engine.py 검사       # 결정성 · 재생 · 대칭 · 매끈 · 되감기
 python 조각/engine_cpp.py        # 파이썬 판 = C++ 판 (최대 차이) · 속도
@@ -43,7 +43,7 @@ exe (PyInstaller):
 
 ```
 cd 조각
-pyinstaller --onefile --windowed --name 조각 --add-data "ui;ui" --add-binary "cpp/sculpt.dll;cpp" --collect-submodules trimesh --collect-submodules skimage.measure --hidden-import scipy.spatial app.py
+python -m PyInstaller --noconfirm --onefile --windowed --name 조각 --add-data "ui;ui" --add-binary "cpp/sculpt.dll;cpp" --collect-submodules trimesh --collect-submodules skimage.measure --collect-submodules skimage.draw --hidden-import scipy.spatial --hidden-import manifold3d app.py
 ```
 
 ## 벤치 (`벤치/`)
