@@ -103,13 +103,26 @@ def _원통(핀, r, 반):
 
 # ── 판정 ─────────────────────────────────────────────────────────────────────
 
-def 얇은몫(V, F, 칸=0.27):
-    """0.8 mm 보다 얇은 부피의 몫 — 칸 0.27 mm 복셀을 3×3×3 십자로 열었을 때 사라지는 몫."""
-    g = trimesh.Trimesh(V, F, process=False).voxelized(칸, max_iter=20).fill().matrix      # 큰 면(150 mm)은 칸까지 쪼개는 데 10 번이 넘는다
+def 얇은몫(V, F, 칸=0.27, 최대=2.5e7):
+    """0.8 mm 보다 얇은 부피의 몫 -> (몫, 쓴 칸 mm). 칸 복셀을 3×3×3 십자로 열었을 때 사라지는 몫.
+    복셀은 manifold 를 높이마다 잘라 단면 다각형을 칠해 만든다 — trimesh.voxelized 는 큰 면(150 mm)을 칸까지 쪼개다
+    메모리가 바닥났다(09-23, cloak_Chest). 칸 수가 `최대` 를 넘으면 칸을 키우고 그 칸을 돌려준다(문턱이 굵어진다)."""
+    from skimage.draw import polygon as 칠
+    man = M(m3.Mesh(vert_properties=np.ascontiguousarray(V, np.float32), tri_verts=np.ascontiguousarray(F, np.uint32)))
+    lo, hi = V.min(0), V.max(0)
+    칸 = float(max(칸, (np.prod(hi - lo) / 최대) ** (1 / 3)))
+    n = np.ceil((hi - lo) / 칸).astype(int) + 2
+    g = np.zeros((n[2], n[1], n[0]), bool)
+    for k in range(n[2]):
+        z = lo[2] + (k - 0.5) * 칸
+        for P in man.slice(z).to_polygons():
+            P = np.asarray(P)
+            rr, cc = 칠((P[:, 1] - lo[1]) / 칸 + 1, (P[:, 0] - lo[0]) / 칸 + 1, shape=g.shape[1:])
+            g[k, rr, cc] ^= True                                           # 짝홀 — 구멍 윤곽은 다시 비운다
     if not g.any():
-        return 0.0
+        return 0.0, 칸
     열린 = ndimage.binary_opening(g, structure=ndimage.generate_binary_structure(3, 1))
-    return float(1 - 열린.sum() / g.sum())
+    return float(1 - 열린.sum() / g.sum()), 칸
 
 
 def 자립(V, F):
@@ -152,12 +165,13 @@ def 만들기(앞, 옆, 키, 줄):
     if 받침:                                                           # Q6 이 떨어지면 받침 — 무게중심 둘레 원판, 두께 4 mm
         반지름 = float(np.max(np.linalg.norm(발 - com, axis=1))) + 8 if len(발) else 30.0
         메시["받침"] = D.메시(M.cylinder(4.0, 반지름, 반지름, 64).translate([float(com[0]), float(com[1]), -4.0]))
-    얇 = {k: 얇은몫(*v) for k, v in 메시.items()}
+    얇칸 = {k: 얇은몫(*v) for k, v in 메시.items()}
+    얇, 칸 = {k: v[0] for k, v in 얇칸.items()}, max(v[1] for v in 얇칸.values())
     이어짐 = {k for k in 메시 if k in ("몸통", "받침")} | {p["자식"] for p in 핀들}
     판정 = {
         "Q1 닫힘": {"통과": all(trimesh.Trimesh(*v, process=False).is_watertight for v in 메시.values()), "값": len(메시)},
         "Q2 접합면 반지름 >= 3 mm": {"통과": all(p["접합 반지름"] >= 3 for p in 핀들), "값": {p["자식"]: p["접합 반지름"] for p in 핀들}},
-        "Q3 얇은 부피 < 1%": {"통과": all(v < 0.01 for v in 얇.values()), "값": {k: round(v, 4) for k, v in 얇.items()}},
+        "Q3 얇은 부피 < 1%": {"통과": all(v < 0.01 for v in 얇.values()), "값": {k: round(v, 4) for k, v in 얇.items()}, "칸 mm": round(칸, 3)},
         "Q4 부품 <= 15": {"통과": len(메시) <= 15, "값": len(메시)},
         "Q5 다 이어짐": {"통과": set(메시) <= 이어짐, "값": sorted(set(메시) - 이어짐)},
         "Q6 자립 여유 >= 2 mm": {"통과": True if 받침 else 여유 >= 2.0, "값": round(float(여유), 2), "받침": 받침},

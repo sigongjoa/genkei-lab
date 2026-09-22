@@ -1,6 +1,8 @@
 """키트 벤치 — `조각.exe 키트` 로 그림 두 장에서 출력 키트까지. 사람형 35 + 도형 11.
 
-    python 벤치/키트벤치.py        -> out/키트벤치.json · out/키트벤치.png · out/exe/<케이스>/{부품/*.stl, 키트.json, 키트.png}
+    python 벤치/키트벤치.py            -> out/키트벤치.json · out/키트벤치.png · out/exe/<케이스>/{부품/*.stl, 키트.json, 키트.png}
+    python 벤치/키트벤치.py 이어서 10   끝난 장은 건너뛰고 다음 10 장만 (메모리가 모자라 백그라운드가 죽을 때 — 09-23)
+    python 벤치/키트벤치.py 판정        적힌 기록으로 판정 · 그림만
 
   1순위  exe 가 고른 형태(메시.stl) 의 3D IoU
   혼합 · 층 타원  exe 결과.json 후보 줄을 파이썬으로 실행해 잰 3D IoU (같은 dsl.py)
@@ -56,12 +58,21 @@ def 한장(case, 재생):
     return out
 
 
-def main():
+def main(몇=None):
     import app
     재생 = lambda 칸들: app.API()._재생(칸들)
-    기록 = {}
+    p = os.path.join(A.OUT, "키트벤치.json")
+    기록 = json.load(open(p, encoding="utf-8"))["기록"] if 몇 and os.path.exists(p) else {}
     for g in ("마네킹", "실물", "도형"):
         for c in X.묶음[g]:
+            if c in 기록:
+                continue
+            if 몇 is not None:
+                if 몇 == 0:
+                    남은 = sum(1 for gg in ("마네킹", "실물", "도형") for cc in X.묶음[gg] if cc not in 기록)
+                    print("  %d 장 남음" % 남은)
+                    return
+                몇 -= 1
             r = 한장(c, 재생)
             기록[c] = dict(r, 묶음=g)
             print("  %-4s %-36s %-6s 3D %.3f · 혼합 %s · 층 %s · 부품 %d · 핀 %d · 부피비 %.3f · %s%s · 해시 %s" % (
@@ -119,4 +130,11 @@ def 모음(기록, 열=6, 칸=(260, 320)):
 
 
 if __name__ == "__main__":
-    main()
+    if len(sys.argv) > 2 and sys.argv[1] == "이어서":
+        main(int(sys.argv[2]))
+    elif len(sys.argv) > 1 and sys.argv[1] == "판정":
+        기록 = json.load(open(os.path.join(A.OUT, "키트벤치.json"), encoding="utf-8"))["기록"]
+        판정(기록)
+        모음(기록)
+    else:
+        main()
