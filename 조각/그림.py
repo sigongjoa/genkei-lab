@@ -304,6 +304,80 @@ def 혼합(앞, 옆, 키, 층수=60, 팔매듭=9):
     return " + ".join(토막)
 
 
+def 켜줄기(켜들):
+    """켜들 = [(z0, z1, y, 깊이, [(x0, x1), ...]), ...] 아래→위. 위아래 구간이 1대1로 겹치면 한 줄기로 잇는다.
+    -> [ [(켜 번호, 구간), ...], ... ]. 갈라지거나 합쳐지는 곳에서 줄기가 끊긴다(가랑이 · 어깨)."""
+    줄기들, 열린 = [], {}
+    for i, (_, _, _, _, 구간들) in enumerate(켜들):
+        새열린 = {}
+        아래 = list(열린.items())                                          # (구간 번호, 줄기)
+        for j, g in enumerate(구간들):
+            닿 = [(jj, 줄) for jj, 줄 in 아래 if min(g[1], 줄[-1][1][1]) > max(g[0], 줄[-1][1][0])]
+            if len(닿) == 1:
+                jj, 줄 = 닿[0]
+                위짝 = [gg for gg in 구간들 if min(gg[1], 줄[-1][1][1]) > max(gg[0], 줄[-1][1][0])]
+                if len(위짝) == 1:
+                    줄.append((i, g))
+                    새열린[j] = 줄
+                    continue
+            줄 = [(i, g)]
+            줄기들.append(줄)
+            새열린[j] = 줄
+        열린 = 새열린
+    return 줄기들
+
+
+def 켜쌓기줄(켜들, fa):
+    """줄기마다 층쌓기 한 토막. 단면은 켜 가운데 높이에, 줄기 두 끝은 켜 경계까지 같은 단면으로 늘인다."""
+    토막 = []
+    for 줄 in 켜줄기(켜들):
+        z, x, y, w, d = [], [], [], [], []
+        for n, (i, (a, b)) in enumerate(줄):
+            z0, z1, yy, 깊이, _ = 켜들[i]
+            xx, ww = ((a + b) / 2 - fa.c) * fa.s, (b - a) * fa.s
+            높이들 = [z0 + 0.0] if n == 0 else []
+            높이들 += [(z0 + z1) / 2]
+            if n == len(줄) - 1:
+                높이들 += [z1 + 0.01]
+            for h in 높이들:
+                z.append(round(float(h), 2)); x.append(round(float(xx), 1)); y.append(round(float(yy), 1)); w.append(round(float(ww), 1)); d.append(round(float(깊이), 1))
+        토막.append("층쌓기(z=%s, x=%s, y=%s, w=%s, d=%s)" % (z, x, y, w, d))
+    return 토막
+
+
+def 켜재기(앞, 옆, fa, fo, 층수=60, 뺄=None):
+    """켜마다 (z0, z1, y, 깊이, 앞 구간들) 아래→위. 뺄 = 앞 그림에서 빼고 잴 화소(혼합의 팔)."""
+    rows = np.nonzero(앞.any(1))[0]
+    경계 = np.linspace(rows.min(), rows.max() + 1, 층수 + 1)
+    켜들 = []
+    for r0, r1 in zip(경계[:-1], 경계[1:]):
+        r = int((r0 + r1) / 2)
+        z0, z1 = (fa.bot - r1) * fa.s, (fa.bot - r0) * fa.s
+        옆값 = _옆줄(옆, fo, (z0 + z1) / 2)
+        줄 = 앞[r] if 뺄 is None else 앞[r] & ~뺄[r]
+        if 옆값 and 줄.any():
+            켜들.append((z0, z1, 옆값[0], 옆값[1], _줄조각(줄)))
+    return 켜들[::-1]
+
+
+def 층타원매끈(앞, 옆, 키):
+    fa, fo = 틀(앞, 키), 틀(옆, 키)
+    return " + ".join(켜쌓기줄(켜재기(앞, 옆, fa, fo), fa)) or None
+
+
+def 혼합매끈(앞, 옆, 키, 팔매듭=9):
+    fa, fo = 틀(앞, 키), 틀(옆, 키)
+    L = 부위나누기(앞)
+    팔 = [번 for 번 in (3, 4) if (L == 번).sum() >= 30]
+    if not 팔:
+        return None
+    토막 = 켜쌓기줄(켜재기(앞, 옆, fa, fo, 뺄=np.isin(L, 팔)), fa)
+    for 번 in 팔:
+        ys, xs = np.nonzero(L == 번)
+        토막.append(_로프트줄(ys, xs, 번, 앞, 옆, fa, fo, 팔매듭))
+    return " + ".join(토막)
+
+
 def 대보기(줄, 앞, 옆, 키):
     """후보 줄 하나 -> (앞 IoU, 옆 IoU). 입력 그림과 같은 틀에 그려 비교한다 — 정답은 안 쓴다."""
     V, F = D.실행(줄)

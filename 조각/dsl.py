@@ -10,6 +10,8 @@
     타원체(w, d, h)        캡슐(r, h)            반구(w, d, h)            둥근상자(w, d, h, r)
     각뿔대(w아래, w위, d아래, d위, h)     네모 단면이 곧게 변한다 — 사각뿔 · 쐐기 · 사다리꼴 기둥
     관(R, r안, 길이, 축="z" | "x" | "y")   속 빈 원기둥
+    층쌓기(z=[...], x=[...], y=[...], w=[...], d=[...])   높이마다 **수평** 타원 단면(가운데 x · y, 폭 w, 깊이 d)을 잇는다.
+        그림에서 높이마다 잰 폭 · 깊이를 그대로 넣는다 — 켜를 평평한 기둥으로 쌓던 계단(표면각 90°)이 없다.
     로프트(점=[[x,y,z], ...], w=[...], d=[...], 이름="팔.왼")   중심선을 따라 타원 단면을 잇는다.
         단면은 중심선에 수직 · d 는 깊이(y) 방향 지름, w 는 그에 수직인 앞 그림 쪽 지름. 이름은 부위(= 키트 부품) 표시.
 
@@ -101,6 +103,31 @@ def 관(R, r안, 길이, 축="z", x=0, y=0, z0=0, rz=0):
     return _놓기(t, x, y, z0, rz)
 
 
+def _고리잇기(고리, 아래, 위):
+    """고리 [n, 둘레, 3] + 두 끝 가운데 -> 닫힌 manifold (바깥을 보게)."""
+    n, k = 고리.shape[0], 고리.shape[1]
+    V = np.concatenate([고리.reshape(-1, 3), [아래, 위]])
+    s, e, j = n * k, n * k + 1, np.arange(k)
+    F = []
+    for i in range(n - 1):
+        a0, a1 = i * k + j, i * k + (j + 1) % k
+        F += [np.stack([a0, a1, a1 + k], 1), np.stack([a0, a1 + k, a0 + k], 1)]
+    F += [np.stack([np.full(k, s), (j + 1) % k, j], 1), np.stack([np.full(k, e), (n - 1) * k + j, (n - 1) * k + (j + 1) % k], 1)]
+    F = np.concatenate(F)
+    if np.einsum("ij,ij->i", V[F[:, 0]], np.cross(V[F[:, 1]], V[F[:, 2]])).sum() < 0:
+        F = F[:, ::-1]
+    return M(m3.Mesh(vert_properties=np.ascontiguousarray(V, np.float32), tri_verts=np.ascontiguousarray(F, np.uint32)))
+
+
+def 층쌓기(z, x, y, w, d, 둘레=24):
+    z, x, y = (np.asarray(v, np.float64) for v in (z, x, y))
+    w, d = np.maximum(np.asarray(w, np.float64), 0.2), np.maximum(np.asarray(d, np.float64), 0.2)
+    assert len(z) >= 2 and len({len(z), len(x), len(y), len(w), len(d)}) == 1 and np.all(np.diff(z) > 0), "z 는 올라가고 칸 수가 같아야 한다"
+    a = 2 * np.pi * np.arange(둘레) / 둘레
+    고리 = np.stack([x[:, None] + w[:, None] / 2 * np.cos(a), y[:, None] + d[:, None] / 2 * np.sin(a), np.repeat(z[:, None], 둘레, 1)], -1)
+    return _고리잇기(고리, [x[0], y[0], z[0]], [x[-1], y[-1], z[-1]])
+
+
 def 로프트(점, w, d, 이름="", 둘레=24):
     P = np.asarray(점, np.float64)
     w = np.maximum(np.asarray(w, np.float64), 0.2)
@@ -132,7 +159,7 @@ def 로프트(점, w, d, 이름="", 둘레=24):
     return M(m3.Mesh(vert_properties=np.ascontiguousarray(V, np.float32), tri_verts=np.ascontiguousarray(F, np.uint32)))
 
 
-어휘 = {f.__name__: f for f in (상자, 원기둥, 원뿔, 구, 토러스, 타원체, 캡슐, 반구, 각뿔대, 둥근상자, 관, 로프트)}
+어휘 = {f.__name__: f for f in (상자, 원기둥, 원뿔, 구, 토러스, 타원체, 캡슐, 반구, 각뿔대, 둥근상자, 관, 로프트, 층쌓기)}
 
 
 def _값(n):
