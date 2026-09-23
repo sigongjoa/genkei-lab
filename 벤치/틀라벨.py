@@ -7,7 +7,9 @@
        정면 한 줄 = 그 높이 수평 단면을 x 로 투영한 것 — 그래서 칸을 정답 메시 단면에서 바로 뽑고 정면 그림에 그린다.
   정답 라벨 (칸의 x 범위에 걸친 단면 다각형들로):
        단면  껍질(안쪽 점의 반 이상에서 위나 아래로 쏜 광선이 안 막힘) > 판(짧은 변 / 긴 변 < 0.25)
-             > 네모(돌기 깎은 단면 / 감싸는 축 사각형 >= 0.88) > 타원. 단면 = 닫힌 고리를 칠한 400² 마스크
+             > 네모(돌기 깎은 단면 / 감싸는 축 사각형 >= 0.88) > 타원. 단면 = 닫힌 고리를 칠한 400² 마스크.
+             칸 안에 떨어진 조각이 여럿이면 조각마다 판 · 네모 · 타원을 매기고 면적이 가장 큰 꼴
+             (09-23 고침: GPT 첫 5장을 받은 뒤 메카 단면 그림에서 조각 여럿을 한 사각형으로 재던 버그를 봄 — 예측은 그대로)
        깊이  앞뒤(y) / 폭(x): < 0.35 얇음 · < 0.8 보통 · 그 이상 깊음
   LLM 은 그림(정면 한 장 + 칸)만 본다. 숫자는 주지 않고 받지도 않는다 — 범주만.
 
@@ -16,6 +18,12 @@
   L1 단면 정답률 >= 0.80 (찍기 0.727 보다 위)
   L2 네 범주 평균 재현율 >= 0.55 (찍기 0.25)
   L3 껍질 3칸 중 2칸 이상 맞힘
+
+중간 결과 (09-23 밤) — GPT(무료, 업로드 한도로 #1~#5 만) 32칸. Gemini 는 멈춤 · 빈 답.
+  단면 정답률 0.312 · 다 타원 찍기 0.656 · 깊이 0.250. 범주 재현: 타원 0.14 · 네모 0.78 · 판 0.00.
+  틀린 것 대부분 = 정답 타원 -> GPT 네모 (13칸, 거의 메카 · 상자 윗단). 마법사(#5)는 전부 껍질(투구)이라 했지만
+  정답 메시는 막힌 덩어리. 주의: 네모/타원 경계(모 깎은 상자 찬 비율 0.8 안팎)는 정답 쪽 자도 흔들린다
+  -> 라벨 정답률보다 「GPT 라벨로 만든 형태의 F@2mm」 가 진짜 자다.
 """
 import json
 import os
@@ -69,23 +77,22 @@ def 라벨(m, z, M):
     W, D = xs.max() + 1 - xs.min(), ys.max() + 1 - ys.min()
     r0 = max(1, int(min(W, D) / 12))                                   # 장식 돌기를 깎고 꼴을 잰다
     O = ndimage.binary_opening(M, np.ones((2 * r0 + 1, 2 * r0 + 1), bool))
-    oy, ox = np.nonzero(O) if O.any() else (ys, xs)
-    찬 = len(ox) / ((ox.max() + 1 - ox.min()) * (oy.max() + 1 - oy.min()))
+    lab, n = ndimage.label(O if O.any() else M)
+    면적 = {}                                                          # 떨어진 조각마다 꼴 -> 면적이 가장 큰 꼴
+    for sl, k in zip(ndimage.find_objects(lab), range(1, n + 1)):
+        c = lab[sl] == k
+        h, w = c.shape
+        꼴 = "판" if min(h, w) < 0.25 * max(h, w) else "네모" if c.mean() >= 0.88 else "타원"
+        면적[꼴] = 면적.get(꼴, 0) + c.sum()
+    찬 = max(면적, key=면적.get)
     # 속 빔: 안쪽 점에서 위 · 아래로 쏜 광선이 메시에 안 막히고 나간다 (두께 없는 껍데기도 잡는다)
     k = np.random.default_rng(0).choice(len(xs), min(60, len(xs)), replace=False)
     P = np.stack([xs[k] / 해상 * 2 - 1, ys[k] / 해상 * 2 - 1, np.full(len(k), z)], 1)
     나감 = ~m.ray.intersects_any(P, np.tile([0, 0, -1.0], (len(P), 1))) | ~m.ray.intersects_any(P, np.tile([0, 0, 1.0], (len(P), 1)))
-    if 나감.mean() >= 0.5:
-        꼴 = "껍질"
-    elif min(W, D) < 0.25 * max(W, D):
-        꼴 = "판"
-    elif 찬 >= 0.88:
-        꼴 = "네모"
-    else:
-        꼴 = "타원"
+    꼴 = "껍질" if 나감.mean() >= 0.5 else 찬
     r = D / max(W, 1)
     return {"단면": 꼴, "깊이": "얇음" if r < 0.35 else "보통" if r < 0.8 else "깊음", "D/W": round(float(r), 2),
-            "찬": round(float(찬), 2), "나감": round(float(나감.mean()), 2)}
+            "나감": round(float(나감.mean()), 2)}
 
 
 def 틀(case):
@@ -146,7 +153,7 @@ def 채점(경로):
     정 = json.load(open(os.path.join(OUT, "정답.json"), encoding="utf-8"))
     llm = json.load(open(경로, encoding="utf-8"))
     쌍 = [(v["단면"], llm.get(n, {}).get(k, {}).get("단면"), v["깊이"], llm.get(n, {}).get(k, {}).get("깊이"))
-         for n, c in 정.items() for k, v in c["칸"].items()]
+         for n, c in 정.items() if n in llm for k, v in c["칸"].items()]
     from collections import Counter
     다수 = Counter(a for a, *_ in 쌍).most_common(1)[0]
     맞 = np.mean([a == b for a, b, _, _ in 쌍])
