@@ -9,6 +9,12 @@
   U1 탈형 불가 부품이 하나라도 있는 장이 50% 이상 (art2real 한 바퀴는 25 부품 중 10)
   U2 팔 · 다리 부품은 90% 이상 빠진다 (관 모양 로프트 · 층 타원 기둥)
   U3 몸통이 가장 많이 걸린다 (어깨 켜 · 치마 · 다보 구멍)
+
+돌린 뒤 1 (09-23, exe 부품 그대로) — 셋 다 맞음: 걸린 장 31/35 · 팔다리 104/107 · 몸통 탈형 불가 89%.
+  그런데 몸통은 **다보 구멍 탓**이었다 — 팔 구멍(x) · 머리 · 다리 구멍(z)이 서로 다른 방향이라 어느 축 기둥도 한 토막이 안 된다.
+  구멍을 빼면 base_male · avatarsample_d · T포즈 몸통이 모두 앞뒤(y)로 빠진다(걸린 몫 0~0.06%).
+  원형 작업에서 다보 구멍은 틀을 뜬 뒤 뚫거나 코어 핀으로 만든다 → **Q8 은 다보를 달기 전 모양으로 잰다** (`키트.만들기(다보=False)`).
+  다시 재기 전 기대 V1: 다보 전 모양으로 재면 탈형 불가 부품이 있는 장이 31/35 → 10 장 이하 (진짜 언더컷만 남는다 — 메카 다리 · 팔 · 모자)
 """
 import json
 import os
@@ -27,22 +33,24 @@ import 키트 as K            # noqa: E402
 잡음 = 0.002
 
 
+def 다보전부품(c):
+    """exe 가 고른 모양 줄로 부품을 다시 자른다 — 다보 없이 (파이썬 · 같은 키트.py)."""
+    import 그림 as G
+    r = json.load(open(os.path.join(A.OUT, "exe", c, "결과.json"), encoding="utf-8"))
+    시트 = os.path.join(A.원화3d, "out", "시트", c)
+    사람형 = r["후보"][0]["이름"] in ("혼합", "층 타원", "부위 로프트", "부위 타원뿔대")
+    메시, _, _, _ = K.만들기(G.마스크(os.path.join(시트, "front.png")), G.마스크(os.path.join(시트, "side.png")), 150.0,
+                          r["후보"][0]["줄"], 나누기=사람형, 다보=False)
+    return {k: trimesh.Trimesh(*v, process=False) for k, v in 메시.items()}
+
+
 def 한장(c):
-    d = os.path.join(A.OUT, "exe", c, "부품")
     out, 메시, 걸린점 = {}, {}, {}
-    for f in sorted(os.listdir(d)):
-        k = f[:-4]
-        m = trimesh.load(os.path.join(d, f), force="mesh")
+    for k, m in sorted(다보전부품(c).items()):
         몫, g, 걸림 = K.빠짐(np.asarray(m.vertices), np.asarray(m.faces))
         축 = [a for a, v in 몫.items() if v <= 잡음]
         out[k] = {"빠지는 축": 축, "걸린 몫": 몫}
         메시[k] = (np.asarray(m.vertices), np.asarray(m.faces))
-        if not 축:                                                       # 가장 덜 걸리는 축의 걸린 칸 자리(그림용)
-            a = min(몫, key=몫.get)
-            zz, yy, xx = np.nonzero(걸림[a])
-            lo = m.vertices.min(0)
-            칸 = (m.vertices.max(0) - lo) / (np.array(g.shape[::-1]) - 2)
-            걸린점[k] = lo + (np.stack([xx, yy, zz], 1) - 0.5) * 칸
     return out, 메시, 걸린점
 
 
