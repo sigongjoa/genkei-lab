@@ -116,5 +116,53 @@ def main(경로):
     json.dump(기록, open(os.path.join(OUT, "빌더.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
 
+
+
+# ── 두 장 + 꼴 라벨 (09-24) ──────────────────────────────────────────────────
+# 층타원매끈(앞 · 옆 두 장, 깊이 · 앞뒤 위치는 옆 그림) 에 칸 라벨의 꼴만 얹는다: 네모 -> p=8, 나머지 타원.
+# 판 · 껍질은 두 장에선 깊이가 이미 옆 그림에서 오니 바꾸지 않는다. T0 두 장 타원 · T1 + 정답 꼴 · T2 + GPT 꼴.
+# 예측 (09-24, 돌리기 전에 커밋) — 17장:
+#   T1 F@2mm 중앙 T1 - T0 >= +0.01 (정답 꼴이면 옆 그림 위에서도 돕는다)
+#   T2 GPT 5장에서 T2 >= T0 (중앙)
+def 두장줄(case, 칸들, 키=150.0):
+    앞, 옆 = (G.마스크(os.path.join(시트, case, n + ".png")) for n in ("front", "side"))
+    fa, fo = G.틀(앞, 키), G.틀(옆, 키)
+    켜들 = G.켜재기(앞, 옆, fa, fo)
+    rows = np.nonzero(앞.any(1))[0]
+    zmax_px = rows.max() + 1 - rows.min()
+    토막 = []
+    for 줄기 in G.켜줄기(켜들):
+        z, x, y, w, d, p = [], [], [], [], [], []
+        for n, (i, (a, b)) in enumerate(줄기):
+            z0, z1, yy, 깊이, _ = 켜들[i]
+            r = fa.bot - (z0 + z1) / 2 / fa.s
+            f, _ = _라벨(칸들, (fa.bot - r) / zmax_px, a, b, 앞.shape[1])
+            높이들 = ([z0] if n == 0 else []) + [(z0 + z1) / 2] + ([z1 + 0.01] if n == len(줄기) - 1 else [])
+            for h in 높이들:
+                z.append(round(float(h), 2)); x.append(round(float(((a + b) / 2 - fa.c) * fa.s), 1)); y.append(round(float(yy), 1))
+                w.append(round(float((b - a) * fa.s), 1)); d.append(round(float(깊이), 1)); p.append(8.0 if f == "네모" else 2.0)
+        토막.append("층쌓기(z=%s, x=%s, y=%s, w=%s, d=%s, p=%s)" % (z, x, y, w, d, p))
+    return " + ".join(토막)
+
+
+def 두장(경로):
+    정 = json.load(open(os.path.join(OUT, "정답.json"), encoding="utf-8"))
+    llm = json.load(open(경로, encoding="utf-8"))
+    기록 = {}
+    for n in sorted(정, key=int):
+        c = 정[n]["케이스"]
+        r = {"T0": 재기(c, 두장줄(c, {})), "T1": 재기(c, 두장줄(c, 정[n]["칸"]))}
+        if n in llm:
+            r["T2"] = 재기(c, 두장줄(c, {k: dict(v, **llm[n].get(k, {})) for k, v in 정[n]["칸"].items() if k in llm[n]}))
+        기록[c] = r
+        print("%-32s " % c[:32] + " · ".join("%s F %.3f 챔퍼 %.2f" % (k, v["F@2mm"], v["챔퍼 중앙"]) for k, v in r.items()), flush=True)
+    med = lambda k, cs: float(np.median([기록[c][k]["F@2mm"] for c in cs]))
+    모두, 다섯 = list(기록), [c for c in 기록 if "T2" in 기록[c]]
+    print("17장 F 중앙 T0 %.3f · T1 %.3f | GPT 5장 T0 %.3f · T2 %.3f" % (med("T0", 모두), med("T1", 모두), med("T0", 다섯), med("T2", 다섯)))
+    print("  %s T1 T1 - T0 >= +0.01\n  %s T2 T2 >= T0 (5장)" % ("○" if med("T1", 모두) - med("T0", 모두) >= 0.01 else "✗",
+                                                              "○" if med("T2", 다섯) >= med("T0", 다섯) else "✗"))
+    json.dump(기록, open(os.path.join(OUT, "두장.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+
+
 if __name__ == "__main__":
-    main(sys.argv[1])
+    두장(sys.argv[2]) if sys.argv[1] == "두장" else main(sys.argv[1])
