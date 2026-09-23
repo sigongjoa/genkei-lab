@@ -254,6 +254,67 @@ def 만들기(앞, 옆, 키, 줄, 나누기=True, 다보=True):
     return 메시, 핀들, 판정, 받침
 
 
+# ── 조립 ─────────────────────────────────────────────────────────────────────
+
+def _만(V, F):
+    return M(m3.Mesh(vert_properties=np.ascontiguousarray(V, np.float32), tri_verts=np.ascontiguousarray(F, np.uint32)))
+
+
+def 조립(메시, 핀들, 거리=40.0, 걸음=2.0, 문턱=1.0):
+    """조립 순서와 끼우는 방향 (art2real `조립.py` 규칙 — 뿌리부터, 아래부터).
+    뿌리 = 몸통(다보 구멍을 다 가진 부품). 자식은 아래에 있는 것부터(다리 → 팔 → 머리), 받침은 맨 끝.
+    끼우기 = 자식을 다보 방향으로 거리 mm 밖에서 제자리까지 걸음 mm 씩 민다. 가는 길에 이미 놓인 부품과
+    겹치는 부피가 문턱 mm³ 를 넘으면 「막힘」 — 그 방향으로는 못 끼운다."""
+    방향 = {p["자식"]: np.array(p["방향"], float) for p in 핀들}
+    높이 = {k: float(V[:, 2].mean()) for k, (V, F) in 메시.items()}
+    뿌리 = "몸통" if "몸통" in 메시 else min(메시, key=lambda k: 높이[k])
+    자식 = sorted([k for k in 메시 if k not in (뿌리, "받침")], key=lambda k: 높이[k])
+    순서 = [뿌리] + 자식 + (["받침"] if "받침" in 메시 else [])
+    놓인 = _만(*메시[뿌리])
+    단계 = [{"부품": 뿌리, "방향": None, "막힘": False, "겹침 최대 mm3": 0.0}]
+    for k in 순서[1:]:
+        n = 방향.get(k, np.array([0, 0, -1.0]) if k == "받침" else np.zeros(3))
+        m = _만(*메시[k])
+        겹 = 0.0
+        if n.any():
+            for t in np.arange(거리, 0, -걸음):                            # 제자리(t=0)는 빼고 — 거기서는 닿아 있다
+                겹 = max(겹, (m.translate((n * t).tolist()) ^ 놓인).volume())
+        단계.append({"부품": k, "방향": None if not n.any() else [round(float(x), 3) for x in n],
+                   "막힘": 겹 > 문턱, "겹침 최대 mm3": round(float(겹), 2), "다보": k in 방향})
+        놓인 = 놓인 + m
+    return 단계
+
+
+def 조립그림(메시, 단계, 핀들):
+    """단계마다 한 칸: 이미 놓인 부품(회색) + 지금 끼우는 부품(색, 방향으로 25 mm 빼서) + 화살표 대신 거리."""
+    R = _돌림()                                                          # 모든 칸이 같은 배율 — 빼낸 자리까지 넣은 범위
+    모든 = np.concatenate([(메시[st["부품"]][0] + np.array(st["방향"] or [0, 0, 0], float) * 25.0) @ R.T for st in 단계]
+                        + [V @ R.T for V, F in 메시.values()])[:, [0, 2]]
+    범위 = (모든.min(0), 모든.max(0))
+    칸들 = []
+    놓인 = {}
+    for i, st in enumerate(단계):
+        k = st["부품"]
+        지금 = dict(놓인)
+        n = np.array(st["방향"] or [0, 0, 0], float)
+        V, F = 메시[k]
+        지금[k + "·지금"] = (V + n * 25.0, F)
+        색표 = {kk: (200, 200, 205) for kk in 놓인}
+        색표[k + "·지금"] = (220, 70, 60) if st["막힘"] else 색.get(k, (90, 180, 110))
+        칸들.append((i + 1, k, st, 그리기(지금, (), 0.0, (260, 330), 색표=색표, 범위=범위)))
+        놓인[k] = (V, F)
+    W = 270 * len(칸들)
+    im = Image.new("RGB", (W, 390), "white")
+    d = ImageDraw.Draw(im)
+    for j, (i, k, st, t) in enumerate(칸들):
+        im.paste(t, (j * 270 + 5, 30))
+        글 = "%d. %s%s" % (i, k, "" if st["방향"] is None else ("  막힘!" if st["막힘"] else "  끼움"))
+        d.text((j * 270 + 10, 6), 글, fill=(200, 60, 50) if st["막힘"] else "black", font=_글꼴(15))
+        if st["방향"]:
+            d.text((j * 270 + 10, 365), "방향 (%.2f, %.2f, %.2f)" % tuple(st["방향"]), fill=(110, 110, 110), font=_글꼴(12))
+    return im
+
+
 # ── 그림 ─────────────────────────────────────────────────────────────────────
 
 def _돌림(yaw=35.0, pitch=18.0):
@@ -263,7 +324,7 @@ def _돌림(yaw=35.0, pitch=18.0):
     return Rx @ Rz
 
 
-def 그리기(메시, 핀들=(), 벌림=0.0, 크기=(520, 640), 색표=None):
+def 그리기(메시, 핀들=(), 벌림=0.0, 크기=(520, 640), 색표=None, 범위=None):
     """3/4 에서 본 그림 (화가 순서). 벌림 > 0 이면 부품을 핀 방향으로 벌림 mm 씩 빼낸 분해도."""
     R = _돌림()
     방향 = {p["자식"]: np.array(p["방향"]) for p in 핀들}
@@ -280,7 +341,7 @@ def 그리기(메시, 핀들=(), 벌림=0.0, 크기=(520, 640), 색표=None):
         색들.append(np.array((색표 or 색).get(k, (200, 200, 200)))[None] * 빛[:, None])
     T, C = np.concatenate(tris), np.concatenate(색들)
     xy = T[:, :, [0, 2]]
-    lo, hi = xy.reshape(-1, 2).min(0), xy.reshape(-1, 2).max(0)
+    lo, hi = 범위 if 범위 is not None else (xy.reshape(-1, 2).min(0), xy.reshape(-1, 2).max(0))
     s = 0.9 * min(크기[0] / (hi[0] - lo[0]), 크기[1] / (hi[1] - lo[1]))
     P = np.stack([(xy[..., 0] - (lo[0] + hi[0]) / 2) * s + 크기[0] / 2, 크기[1] / 2 - (xy[..., 1] - (lo[1] + hi[1]) / 2) * s], -1)
     im = Image.new("RGB", 크기, (250, 250, 252))
@@ -316,14 +377,17 @@ def 시트(메시, 핀들, 판정, 제목):
 
 
 def 쓰기(메시, 핀들, 판정, 받침, 폴더, 제목, 줄):
+    단계 = 조립(메시, 핀들)
+    판정["Q9 조립 (끼우다 막힘 없음)"] = {"통과": not any(st["막힘"] for st in 단계), "값": [st["부품"] + ("×" if st["막힘"] else "") for st in 단계]}
     os.makedirs(os.path.join(폴더, "부품"), exist_ok=True)
     for k, (V, F) in 메시.items():
         trimesh.Trimesh(V, F, process=False).export(os.path.join(폴더, "부품", k + ".stl"))
     json.dump({"모양": 줄, "부품": {k: {"정점": int(len(V)), "부피 mm3": round(float(trimesh.Trimesh(V, F, process=False).volume), 1)}
                                   for k, (V, F) in 메시.items()},
-               "핀": 핀들, "판정": 판정, "받침 더함": 받침, "공차 mm": 공차},
+               "핀": 핀들, "판정": 판정, "받침 더함": 받침, "공차 mm": 공차, "조립": 단계},
               open(os.path.join(폴더, "키트.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     시트(메시, 핀들, 판정, 제목).save(os.path.join(폴더, "키트.png"))
+    조립그림(메시, 단계, 핀들).save(os.path.join(폴더, "조립.png"))
 
 
 def 검사():
