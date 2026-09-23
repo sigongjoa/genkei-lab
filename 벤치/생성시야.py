@@ -1,6 +1,6 @@
 """그림 한 장 + AI 가 만든 옆 그림 -> exe -> 채점 (09-23). 입력 결정: 서비스는 정면 한 장만 받는다.
 
-    python 벤치/생성시야.py <케이스> <생성 시트 png>     -> out/생성시야/<케이스>/{side_gen.png, 결과.json, 비교.png}
+    python 벤치/생성시야.py <케이스> <생성 시트 png> [꼬리 예: _qwen]     -> out/생성시야/<케이스>/{side_gen.png, 결과.json, 비교.png}
 
   생성 시트에서 가장 왼쪽 덩어리 = 옆모습(Gemini 는 얼굴이 왼쪽 -> 뒤집어 정답 시트처럼 오른쪽 = 정면).
   같은 exe 로 (정답 옆) · (생성 옆) 두 번 돌려 챔퍼 · F@2mm · 새 각도를 나란히 잰다. 앞 그림은 둘 다 정답 시트 것.
@@ -17,6 +17,10 @@
   위에서 본 그림: 팔이 짧고 머리 위주 — 치수로 못 쓴다. 다음은 안 되는 케이스(상자 · 속 빈 모자)와 여러 장
   cloak_Chest_Closed (Pro 수요 초과 -> Flash 가 그림): 옆 대신 긴 면을 다시 그렸다(둥근 뚜껑 · 고리 없음, 라벨도 FRONT/BACK/TOP).
     최대 깊이 151 -> 275 mm · 깊이 차 중앙 117 mm. F@2mm 0.234 -> 0.160 · 챔퍼 3.27 -> 9.80 mm. 사람이 아닌 물체는 브라우저 생성으로 안 된다
+
+예측 (09-23, 로컬 Qwen-Image-Edit-2511 + Multiple-Angles LoRA, 재기 전에 커밋):
+  Q1 avatarsample_d: 깊이 차 중앙 <= 3 mm · F@2mm >= 0.805 (Gemini 와 같은 문턱)
+  Q2 cloak_Chest_Closed: 깊이 차 중앙 <= 20 mm (Gemini 117 mm 보다 낫다 — 시야를 각도로 지정하니까)
 """
 import json
 import os
@@ -65,15 +69,15 @@ def 재기(case, 폴더):
     return r
 
 
-def main(case, 시트png):
+def main(case, 시트png, 꼬리=""):
     D = os.path.join(A.OUT, "생성시야", case)
     os.makedirs(D, exist_ok=True)
     옆 = 옆뽑기(시트png)
     rgba = np.zeros(옆.shape + (4,), np.uint8)
     rgba[옆] = (0, 0, 0, 255)
-    Image.fromarray(rgba).save(os.path.join(D, "side_gen.png"))
+    Image.fromarray(rgba).save(os.path.join(D, "side_gen%s.png" % 꼬리))
     Image.open(os.path.join(시트, case, "front.png")).save(os.path.join(D, "front.png"))
-    Image.open(os.path.join(D, "side_gen.png")).save(os.path.join(D, "side.png"))
+    Image.open(os.path.join(D, "side_gen%s.png" % 꼬리)).save(os.path.join(D, "side.png"))
 
     진 = G.마스크(os.path.join(시트, case, "side.png"))
     d진, d생 = 깊이줄(진), 깊이줄(옆)
@@ -83,13 +87,13 @@ def main(case, 시트png):
 
     결과 = {"일관성": 일관}
     for 이름, 뿌리 in (("정답 옆", 시트), ("생성 옆", os.path.join(A.OUT, "생성시야"))):
-        폴더 = os.path.join(D, "exe_" + 이름.replace(" ", ""))
+        폴더 = os.path.join(D, "exe_" + 이름.replace(" ", "") + 꼬리)
         exe로(case, 폴더, 뿌리)
         결과[이름] = 재기(case, 폴더)
         결과[이름]["1순위"] = json.load(open(os.path.join(폴더, "결과.json"), encoding="utf-8"))["후보"][0]["이름"]
-    json.dump(결과, open(os.path.join(D, "결과.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    json.dump(결과, open(os.path.join(D, "결과%s.json" % 꼬리), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print(json.dumps(결과, ensure_ascii=False, indent=1))
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2])
+    main(*sys.argv[1:4])
