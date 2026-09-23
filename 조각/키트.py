@@ -144,10 +144,9 @@ def 다보검사(핀들):
 
 # ── 판정 ─────────────────────────────────────────────────────────────────────
 
-def 얇은몫(V, F, 칸=0.27, 최대=2.5e7):
-    """0.8 mm 보다 얇은 부피의 몫 -> (몫, 쓴 칸 mm). 칸 복셀을 3×3×3 십자로 열었을 때 사라지는 몫.
-    복셀은 manifold 를 높이마다 잘라 단면 다각형을 칠해 만든다 — trimesh.voxelized 는 큰 면(150 mm)을 칸까지 쪼개다
-    메모리가 바닥났다(09-23, cloak_Chest). 칸 수가 `최대` 를 넘으면 칸을 키우고 그 칸을 돌려준다(문턱이 굵어진다)."""
+def 복셀(V, F, 칸=0.27, 최대=2.5e7):
+    """닫힌 메시 -> (bool 격자 [z, y, x], 쓴 칸 mm). manifold 를 높이마다 잘라 단면 다각형을 칠한다 — trimesh.voxelized 는
+    큰 면(150 mm)을 칸까지 쪼개다 메모리가 바닥났다(09-23, cloak_Chest). 칸 수가 `최대` 를 넘으면 칸을 키운다."""
     from skimage.draw import polygon as 칠
     man = M(m3.Mesh(vert_properties=np.ascontiguousarray(V, np.float32), tri_verts=np.ascontiguousarray(F, np.uint32)))
     lo, hi = V.min(0), V.max(0)
@@ -160,10 +159,30 @@ def 얇은몫(V, F, 칸=0.27, 최대=2.5e7):
             P = np.asarray(P)
             rr, cc = 칠((P[:, 1] - lo[1]) / 칸 + 1, (P[:, 0] - lo[0]) / 칸 + 1, shape=g.shape[1:])
             g[k, rr, cc] ^= True                                           # 짝홀 — 구멍 윤곽은 다시 비운다
+    return g, 칸
+
+
+def 얇은몫(V, F, 칸=0.27, 최대=2.5e7):
+    """0.8 mm 보다 얇은 부피의 몫 -> (몫, 쓴 칸 mm). 칸 복셀을 3×3×3 십자로 열었을 때 사라지는 몫."""
+    g, 칸 = 복셀(V, F, 칸, 최대)
     if not g.any():
         return 0.0, 칸
     열린 = ndimage.binary_opening(g, structure=ndimage.generate_binary_structure(3, 1))
     return float(1 - 열린.sum() / g.sum()), 칸
+
+
+def 빠짐(V, F, 칸=0.5):
+    """틀에서 빠지는 축 -> ({"x"|"y"|"z": 걸린 칸 몫}, 격자, 걸린 칸). 축 방향 기둥마다 채워진 칸이 한 토막이면 그 축으로
+    두 쪽 틀에서 빠진다(언더컷 없음) — art2real `조립.빠짐방향` 과 같은 뜻. 걸린 칸 = 두 토막 넘는 기둥의 칸."""
+    g, _ = 복셀(V, F, 칸, 4e6)
+    몫, 걸림 = {}, {}
+    for 이름, ax in (("z", 0), ("y", 1), ("x", 2)):
+        시작 = np.diff(np.concatenate([np.zeros_like(g.take([0], ax)), g], ax).astype(np.int8), axis=ax) == 1
+        토막 = 시작.sum(ax, keepdims=True)
+        나쁜 = g & (토막 > 1)
+        몫[이름] = round(float(나쁜.sum() / max(g.sum(), 1)), 4)
+        걸림[이름] = 나쁜
+    return 몫, g, 걸림
 
 
 def 자립(V, F):
@@ -239,7 +258,7 @@ def _돌림(yaw=35.0, pitch=18.0):
     return Rx @ Rz
 
 
-def 그리기(메시, 핀들=(), 벌림=0.0, 크기=(520, 640)):
+def 그리기(메시, 핀들=(), 벌림=0.0, 크기=(520, 640), 색표=None):
     """3/4 에서 본 그림 (화가 순서). 벌림 > 0 이면 부품을 핀 방향으로 벌림 mm 씩 빼낸 분해도."""
     R = _돌림()
     방향 = {p["자식"]: np.array(p["방향"]) for p in 핀들}
@@ -253,7 +272,7 @@ def 그리기(메시, 핀들=(), 벌림=0.0, 크기=(520, 640)):
         앞면 = n[:, 1] < 0                                             # 카메라는 -y 에서 +y 를 본다
         빛 = 0.35 + 0.65 * np.clip(n[앞면] @ np.array([-0.35, -0.75, 0.55]) / np.linalg.norm([-0.35, -0.75, 0.55]), 0, 1)
         tris.append(T[앞면])
-        색들.append(np.array(색.get(k, (200, 200, 200)))[None] * 빛[:, None])
+        색들.append(np.array((색표 or 색).get(k, (200, 200, 200)))[None] * 빛[:, None])
     T, C = np.concatenate(tris), np.concatenate(색들)
     xy = T[:, :, [0, 2]]
     lo, hi = xy.reshape(-1, 2).min(0), xy.reshape(-1, 2).max(0)
