@@ -119,12 +119,18 @@ def _고리잇기(고리, 아래, 위):
     return M(m3.Mesh(vert_properties=np.ascontiguousarray(V, np.float32), tri_verts=np.ascontiguousarray(F, np.uint32)))
 
 
-def 층쌓기(z, x, y, w, d, 둘레=24):
+def 층쌓기(z, x, y, w, d, 둘레=24, p=None):
+    """p = 단면 꼴 지수(초타원) — 2 타원 · 클수록 네모. 없으면 타원(예전 줄 해시 그대로)."""
     z, x, y = (np.asarray(v, np.float64) for v in (z, x, y))
     w, d = np.maximum(np.asarray(w, np.float64), 0.2), np.maximum(np.asarray(d, np.float64), 0.2)
     assert len(z) >= 2 and len({len(z), len(x), len(y), len(w), len(d)}) == 1 and np.all(np.diff(z) > 0), "z 는 올라가고 칸 수가 같아야 한다"
     a = 2 * np.pi * np.arange(둘레) / 둘레
-    고리 = np.stack([x[:, None] + w[:, None] / 2 * np.cos(a), y[:, None] + d[:, None] / 2 * np.sin(a), np.repeat(z[:, None], 둘레, 1)], -1)
+    c, s = np.cos(a)[None, :], np.sin(a)[None, :]
+    if p is not None:
+        e = 2 / np.asarray(p, np.float64)[:, None]
+        assert e.shape[0] == len(z), "p 칸 수도 같아야 한다"
+        c, s = np.sign(c) * np.abs(c) ** e, np.sign(s) * np.abs(s) ** e
+    고리 = np.stack([x[:, None] + w[:, None] / 2 * c, y[:, None] + d[:, None] / 2 * s, np.repeat(z[:, None], 둘레, 1)], -1)
     return _고리잇기(고리, [x[0], y[0], z[0]], [x[-1], y[-1], z[-1]])
 
 
