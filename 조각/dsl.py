@@ -235,12 +235,12 @@ def 부드럽게(조각들, 반경=3.0, 격자=1.0, 흐림=1.0):
 
     man = M.level_set(거리, list(lo) + list(lo + (np.asarray(D.shape) - 1) * 격자), 격자)
     # 면이 한 점에서 맞닿는 곳(스치는 두 다리)은 같은 좌표의 다른 정점으로 남는다 — manifold 는 되지만 STL 은 합쳐 구멍이 난다.
-    # 그런 정점을 제 면 가운데 쪽으로 0.01 mm 떼어 놓는다(결정적).
+    # 그런 정점(0.002 mm 안에 짝이 있는 것)을 제 면 가운데 쪽으로 0.01 mm 떼어 놓는다(결정적).
     me = man.to_mesh()
     V = np.asarray(me.vert_properties, np.float64)[:, :3]
     F = np.asarray(me.tri_verts, np.int64)
-    _, inv, cnt = np.unique(V, axis=0, return_inverse=True, return_counts=True)
-    겹 = np.nonzero(cnt[inv.reshape(-1)] > 1)[0]
+    from scipy.spatial import cKDTree
+    겹 = np.unique(np.asarray(list(cKDTree(V).query_pairs(2e-3)), np.int64).reshape(-1))   # 0.002 mm 안 — STL 이 합친다
     if len(겹):
         중 = V[F].mean(1)
         for i in 겹:
