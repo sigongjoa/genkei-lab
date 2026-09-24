@@ -261,8 +261,7 @@ def 색정답():
     med = lambda k: float(np.median([v[k] for v in 기록.values()]))
     d = float(np.median([v["색 부품 순도"] - v["규칙 부품 순도"] for v in 기록.values()]))
     print("중앙 — 색 부품 %.3f · 규칙 부품 %.3f · 차 %+.3f" % (med("색 부품 순도"), med("규칙 부품 순도"), d))
-    print("  %s E1 색 부품 순도 >= 0.85
-  %s E2 차 >= +0.10" % ("○" if med("색 부품 순도") >= 0.85 else "✗", "○" if d >= 0.10 else "✗"))
+    print("  %s E1 색 부품 순도 >= 0.85 · %s E2 차 >= +0.10" % ("○" if med("색 부품 순도") >= 0.85 else "✗", "○" if d >= 0.10 else "✗"))
     json.dump(기록, open(os.path.join(A.OUT, "도색단위_색.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
 
