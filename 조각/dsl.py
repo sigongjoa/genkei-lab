@@ -12,6 +12,7 @@
     관(R, r안, 길이, 축="z" | "x" | "y")   속 빈 원기둥
     층쌓기(z=[...], x=[...], y=[...], w=[...], d=[...])   높이마다 **수평** 타원 단면(가운데 x · y, 폭 w, 깊이 d)을 잇는다.
         그림에서 높이마다 잰 폭 · 깊이를 그대로 넣는다 — 켜를 평평한 기둥으로 쌓던 계단(표면각 90°)이 없다.
+    부드럽게(A + B + ..., 반경=3, 격자=1.0)   조각을 부드럽게 합친다(이음매를 반경 mm 로 둥글림 · 마칭 큐브).
     로프트(점=[[x,y,z], ...], w=[...], d=[...], 이름="팔.왼")   중심선을 따라 타원 단면을 잇는다.
         단면은 중심선에 수직 · d 는 깊이(y) 방향 지름, w 는 그에 수직인 앞 그림 쪽 지름. 이름은 부위(= 키트 부품) 표시.
 
@@ -178,7 +179,64 @@ def _값(n):
     raise ValueError("숫자나 문자열만 된다: %s" % ast.dump(n))
 
 
+def _항들(n):
+    """a + b + c -> [a, b, c] (부드럽게 안은 더하기만)."""
+    if isinstance(n, ast.BinOp) and isinstance(n.op, ast.Add):
+        return _항들(n.left) + _항들(n.right)
+    return [n]
+
+
+def 부드럽게(조각들, 반경=3.0, 격자=1.0):
+    """조각들을 **부드럽게 합친다** — 이음매(겨드랑이 · 가랑이 · 목)를 반경 mm 로 둥글린다.
+    조각마다 높이마다 잘라 칠한 칸 -> 거리 변환 = 부호 거리장(속 -) · 다항식 부드러운 최솟값 · manifold level_set(마칭 사면체).
+    모든 기본형이 된다(자른 면을 칠하니까). 격자 mm = 표면 세밀도. 결정적이다(같은 줄 -> 같은 해시)."""
+    from scipy import ndimage
+    from skimage.draw import polygon
+    lo = np.min([m.bounding_box()[:3] for m in 조각들], 0) - 반경 - 3 * 격자
+    hi = np.max([m.bounding_box()[3:] for m in 조각들], 0) + 반경 + 3 * 격자
+    n = np.ceil((hi - lo) / 격자).astype(int) + 1
+    D = np.full(n, np.inf)
+    for m in 조각들:
+        b0 = np.clip(np.floor((np.asarray(m.bounding_box()[:3]) - lo) / 격자).astype(int) - int(반경 / 격자) - 3, 0, n - 1)
+        b1 = np.clip(np.ceil((np.asarray(m.bounding_box()[3:]) - lo) / 격자).astype(int) + int(반경 / 격자) + 3, 0, n - 1) + 1
+        속 = np.zeros(b1 - b0, bool)
+        for k in range(b0[2], b1[2]):
+            z = lo[2] + k * 격자
+            단 = m.slice(z).to_polygons()
+            if not 단:
+                continue
+            칸 = np.zeros((b1[0] - b0[0], b1[1] - b0[1]), bool)
+            for 고리 in 단:                                                  # 짝홀 — 구멍도 맞게 · 격자점이 안에 있는가만(치우침 없음)
+                q = (np.asarray(고리) - lo[:2]) / 격자 - b0[:2]
+                t = np.zeros_like(칸)
+                t[polygon(q[:, 0], q[:, 1], 칸.shape)] = True
+                칸 ^= t
+            속[:, :, k - b0[2]] = 칸
+        sd = (ndimage.distance_transform_edt(~속) - ndimage.distance_transform_edt(속)) * 격자
+        blk = tuple(slice(a, b) for a, b in zip(b0, b1))
+        a = D[blk]
+        h = np.clip(0.5 + 0.5 * (a - sd) / 반경, 0, 1)                      # 다항식 smin (반경 = 섞는 폭)
+        with np.errstate(invalid="ignore"):
+            D[blk] = np.where(np.isinf(a), sd, a * (1 - h) + sd * h - 반경 * h * (1 - h))
+    D[np.isinf(D)] = 10 * 반경
+    # manifold 의 level_set(체심 격자 · 마칭 사면체)은 늘 다양체를 낸다 — skimage 마칭 큐브는 얇은 곳에서 꼬였다(09-24)
+    nx, ny, nz = D.shape
+
+    def 거리(x, y, z):                                                    # 격자 값 삼선형 보간 · 속 = +
+        u, v, w = (x - lo[0]) / 격자, (y - lo[1]) / 격자, (z - lo[2]) / 격자
+        i, j, k = min(max(int(u), 0), nx - 2), min(max(int(v), 0), ny - 2), min(max(int(w), 0), nz - 2)
+        fu, fv, fw = min(max(u - i, 0.0), 1.0), min(max(v - j, 0.0), 1.0), min(max(w - k, 0.0), 1.0)
+        c = D[i:i + 2, j:j + 2, k:k + 2]
+        c = c[0] * (1 - fu) + c[1] * fu
+        c = c[0] * (1 - fv) + c[1] * fv
+        return -float(c[0] * (1 - fw) + c[1] * fw)
+
+    return M.level_set(거리, list(lo) + list(lo + (np.asarray(D.shape) - 1) * 격자), 격자)
+
+
 def _풀기(n):
+    if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "부드럽게":
+        return 부드럽게([_풀기(t) for t in _항들(n.args[0])], **{k.arg: _값(k.value) for k in n.keywords})
     if isinstance(n, ast.BinOp) and isinstance(n.op, (ast.Add, ast.Sub)):
         a, b = _풀기(n.left), _풀기(n.right)
         return a + b if isinstance(n.op, ast.Add) else a - b
