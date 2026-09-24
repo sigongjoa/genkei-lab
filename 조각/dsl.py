@@ -13,6 +13,7 @@
     층쌓기(z=[...], x=[...], y=[...], w=[...], d=[...])   높이마다 **수평** 타원 단면(가운데 x · y, 폭 w, 깊이 d)을 잇는다.
         그림에서 높이마다 잰 폭 · 깊이를 그대로 넣는다 — 켜를 평평한 기둥으로 쌓던 계단(표면각 90°)이 없다.
     부드럽게(A + B + ..., 반경=3, 격자=1.0)   조각을 부드럽게 합친다(이음매를 반경 mm 로 둥글림 · 마칭 큐브).
+    켜부피(켜=[[z, [[x, y, w, d], ...]], ...])   높이마다 타원들을 칸에 칠해 곡면으로 — 줄기 · 뚜껑 원반 없음.
     로프트(점=[[x,y,z], ...], w=[...], d=[...], 이름="팔.왼")   중심선을 따라 타원 단면을 잇는다.
         단면은 중심선에 수직 · d 는 깊이(y) 방향 지름, w 는 그에 수직인 앞 그림 쪽 지름. 이름은 부위(= 키트 부품) 표시.
 
@@ -167,6 +168,7 @@ def 로프트(점, w, d, 이름="", 둘레=24):
 
 
 어휘 = {f.__name__: f for f in (상자, 원기둥, 원뿔, 구, 토러스, 타원체, 캡슐, 반구, 각뿔대, 둥근상자, 관, 로프트, 층쌓기)}
+어휘_뒤 = ("켜부피",)                                                  # 아래에서 정의 — _풀기 가 찾는다
 
 
 def _값(n):
@@ -221,26 +223,44 @@ def 부드럽게(조각들, 반경=3.0, 격자=1.0, 흐림=1.0):
     D[np.isinf(D)] = 10 * 반경
     if 흐림:                                                              # 칠한 칸의 거리는 격자 계단을 탄다 — 칸 σ 로 흐려 곡면으로(09-24 그림에서 봄)
         D = ndimage.gaussian_filter(D, 흐림)
-    # manifold 의 level_set(체심 격자 · 마칭 사면체)은 늘 다양체를 낸다 — skimage 마칭 큐브는 얇은 곳에서 꼬였다(09-24)
-    nx, ny, nz = D.shape
+    return _면(D, lo, 격자)
 
-    def 거리(x, y, z):                                                    # 격자 값 삼선형 보간 · 속 = +
-        u, v, w = (x - lo[0]) / 격자, (y - lo[1]) / 격자, (z - lo[2]) / 격자
-        i, j, k = min(max(int(u), 0), nx - 2), min(max(int(v), 0), ny - 2), min(max(int(w), 0), nz - 2)
-        fu, fv, fw = min(max(u - i, 0.0), 1.0), min(max(v - j, 0.0), 1.0), min(max(w - k, 0.0), 1.0)
-        c = D[i:i + 2, j:j + 2, k:k + 2]
-        c = c[0] * (1 - fu) + c[1] * fu
-        c = c[0] * (1 - fv) + c[1] * fv
-        return -float(c[0] * (1 - fw) + c[1] * fw)
 
-    man = M.level_set(거리, list(lo) + list(lo + (np.asarray(D.shape) - 1) * 격자), 격자)
-    # 면이 한 점에서 맞닿는 곳(스치는 두 다리)은 같은 좌표의 다른 정점으로 남는다 — manifold 는 되지만 STL 은 합쳐 구멍이 난다.
-    # 그런 정점(0.002 mm 안에 짝이 있는 것)을 제 면 가운데 쪽으로 0.01 mm 떼어 놓는다(결정적).
+def _면(D, lo, 격자):
+    """부호 거리 격자(속 -) -> manifold. 마칭 큐브(빠름)를 먼저, 다양체가 안 되면 manifold level_set(늘 된다 · 느림).
+    끝에 0.002 mm 안에 짝이 있는 정점(면이 한 점에서 맞닿는 곳)을 제 면 쪽으로 0.01 mm 뗀다 — STL 이 합쳐 구멍 내던 것."""
+    from scipy.spatial import cKDTree
+    from skimage.measure import marching_cubes
+    D = np.asarray(D, np.float64).copy()
+    D[[0, -1]] = D[:, [0, -1]] = D[:, :, [0, -1]] = np.maximum(D[[0, -1]].max(), 1.0)
+    man = None
+    V, F, _, _ = marching_cubes(D, 0.0, spacing=(격자, 격자, 격자), allow_degenerate=False)
+    V = np.round(V + lo, 6)
+    V, inv = np.unique(V, axis=0, return_inverse=True)
+    F = inv.reshape(-1)[F]
+    F = F[(F[:, 0] != F[:, 1]) & (F[:, 1] != F[:, 2]) & (F[:, 0] != F[:, 2])]
+    for 돌림 in (F[:, ::-1], F):
+        m = M(m3.Mesh(vert_properties=np.ascontiguousarray(V, np.float32), tri_verts=np.ascontiguousarray(돌림, np.uint32)))
+        if m.status() == m3.Error.NoError and not m.is_empty() and m.volume() > 0:
+            man = m
+            break
+    if man is None:                                                       # 얇은 곳에서 꼬였다 — 늘 되는 쪽으로
+        nx, ny, nz = D.shape
+
+        def 거리(x, y, z):                                                # 격자 값 삼선형 보간 · 속 = +
+            u, v, w = (x - lo[0]) / 격자, (y - lo[1]) / 격자, (z - lo[2]) / 격자
+            i, j, k = min(max(int(u), 0), nx - 2), min(max(int(v), 0), ny - 2), min(max(int(w), 0), nz - 2)
+            fu, fv, fw = min(max(u - i, 0.0), 1.0), min(max(v - j, 0.0), 1.0), min(max(w - k, 0.0), 1.0)
+            c = D[i:i + 2, j:j + 2, k:k + 2]
+            c = c[0] * (1 - fu) + c[1] * fu
+            c = c[0] * (1 - fv) + c[1] * fv
+            return -float(c[0] * (1 - fw) + c[1] * fw)
+
+        man = M.level_set(거리, list(lo) + list(lo + (np.asarray(D.shape) - 1) * 격자), 격자)
     me = man.to_mesh()
     V = np.asarray(me.vert_properties, np.float64)[:, :3]
     F = np.asarray(me.tri_verts, np.int64)
-    from scipy.spatial import cKDTree
-    겹 = np.unique(np.asarray(list(cKDTree(V).query_pairs(2e-3)), np.int64).reshape(-1))   # 0.002 mm 안 — STL 이 합친다
+    겹 = np.unique(np.asarray(list(cKDTree(V).query_pairs(2e-3)), np.int64).reshape(-1))
     if len(겹):
         중 = V[F].mean(1)
         for i in 겹:
@@ -250,12 +270,38 @@ def 부드럽게(조각들, 반경=3.0, 격자=1.0, 흐림=1.0):
     return man
 
 
+def 켜부피(켜, 흐림=1.2, 격자=1.0):
+    """켜 = [[z, [[x, y, w, d], ...]], ...] (z 오름 · 간격 = 격자). 높이마다 그 높이의 타원들(가운데 x · y, 폭 w, 깊이 d)을
+    칸에 칠하고 거리장을 z 로도 흐려 곡면으로. **줄기가 없다** — 켜 줄기가 끊길 때마다 생기던 뚜껑 원반(슬라이스)이 없다(09-24)."""
+    from scipy import ndimage
+    타원들 = [t for _, ts in 켜 for t in ts]
+    x0 = min(t[0] - t[2] / 2 for t in 타원들) - 4 * 격자
+    x1 = max(t[0] + t[2] / 2 for t in 타원들) + 4 * 격자
+    y0 = min(t[1] - t[3] / 2 for t in 타원들) - 4 * 격자
+    y1 = max(t[1] + t[3] / 2 for t in 타원들) + 4 * 격자
+    zs = [z for z, _ in 켜]
+    lo = np.array([x0, y0, zs[0] - 4 * 격자])
+    n = np.array([int(np.ceil((x1 - x0) / 격자)) + 1, int(np.ceil((y1 - y0) / 격자)) + 1, len(zs) + 8])
+    X = lo[0] + np.arange(n[0]) * 격자
+    Y = lo[1] + np.arange(n[1]) * 격자
+    속 = np.zeros(n, bool)
+    for k, (_, ts) in enumerate(켜):
+        for x, y, w, d in ts:
+            속[:, :, k + 4] |= ((X[:, None] - x) / max(w / 2, 1e-3)) ** 2 + ((Y[None, :] - y) / max(d / 2, 1e-3)) ** 2 <= 1
+    D = (ndimage.distance_transform_edt(~속) - ndimage.distance_transform_edt(속)) * 격자
+    if 흐림:
+        D = ndimage.gaussian_filter(D, 흐림)
+    return _면(D, lo, 격자)
+
+
 def _풀기(n):
     if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "부드럽게":
         return 부드럽게([_풀기(t) for t in _항들(n.args[0])], **{k.arg: _값(k.value) for k in n.keywords})
     if isinstance(n, ast.BinOp) and isinstance(n.op, (ast.Add, ast.Sub)):
         a, b = _풀기(n.left), _풀기(n.right)
         return a + b if isinstance(n.op, ast.Add) else a - b
+    if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id == "켜부피":
+        return 켜부피(*[_값(a) for a in n.args], **{k.arg: _값(k.value) for k in n.keywords})
     if isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in 어휘:
         return 어휘[n.func.id](*[_값(a) for a in n.args], **{k.arg: _값(k.value) for k in n.keywords})
     raise ValueError("모르는 것: %s — 되는 것은 %s · + · -" % (ast.unparse(n), " · ".join(어휘)))

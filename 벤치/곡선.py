@@ -1,6 +1,7 @@
 """다루는 건 전부 곡선 (09-24 사용자: 「아예 다루는 게 곡선이어야」 · 「F 가 떨어져도 형태가 비슷하면 된다」).
 
-    python 벤치/곡선.py [n]      앞에서부터 n 장 더(이어서) -> out/곡선/<케이스>/{메시.stl, 결과.json} · out/곡선.json
+    python 벤치/곡선.py [n] [이름]     앞에서부터 n 장 더(이어서) -> out/<이름>/<케이스>/{메시.stl, 결과.json} · out/<이름>.json
+                                     이름 = 곡선(09-24 줄기 + 부드럽게) · 켜부피(09-24 줄기 없음)
 
   후보에서 계단(혼합 · 층 타원)을 빼고 매끈한 판(혼합 겹침 · 층 겹침 · 부위 둘)을 dsl 「부드럽게」로 감쌌다:
   조각마다 부호 거리장 -> 다항식 부드러운 최솟값(반경 3 mm) -> manifold level_set. 이음매(겨드랑이 · 가랑이 · 목)가 둥글다.
@@ -19,6 +20,13 @@
   고르기는 흐림 전 후보로 했다(실루엣 기준이라 흐림이 거의 안 바꾼다) — 메시만 흐림 뒤 코드로 다시 뽑았다.
   0.03 넘게 떨어진 장: hairsample_male 0.888 -> 0.795 · 마법사 셋(0.02~0.05). 한 장 1~9 분(큰 물체가 느리다 — 파이썬 level_set 콜백).
   그림: out/곡선확대_*.png (정답 | 계단 | 곡선, 면 그늘) · out/갤러리곡선_*.png
+
+켜부피 (09-24 사용자 「슬라이스」 -> 「고쳐서 제대로」): 후보 = 부위 둘(부드럽게) · 혼합 켜부피(켜 부피 몸 + 팔 로프트, 부드럽게) · 켜 부피.
+  켜 부피 = dsl 켜부피 — 높이 1 mm 마다 (앞 구간 × 옆 구간) 타원을 칸에 칠하고 z 로도 흐림. 줄기 · 뚜껑 원반 없음.
+  곡면 = 마칭 큐브 먼저(빠름), 안 되면 level_set. 예측 (돌리기 전에 커밋) — `python 벤치/곡선.py 35 켜부피`:
+  K1 F@2mm 겉 35장 중앙 >= 0.770 (곡선 0.783)
+  K2 닫힘 35/35 · 같은 줄 두 번 같은 해시
+  K3 한 장 평균 < 30 초 (곡선은 1~9 분)
 """
 import json
 import os
@@ -38,7 +46,8 @@ import dsl as D              # noqa: E402
 from exe벤치 import 시트    # noqa: E402
 from 넓은시트 import 잘린, 넓게  # noqa: E402
 
-OUT = os.path.join(A.OUT, "곡선")
+OUT = os.path.join(A.OUT, sys.argv[2] if len(sys.argv) > 2 else "곡선")
+이름 = os.path.basename(OUT)
 
 
 def 한장(c):
@@ -81,7 +90,7 @@ def main(n):
     print("남은 %d장" % (len(남은) - min(n, len(남은))))
     if len(남은) <= n:
         기록 = 재기()
-        json.dump(기록, open(os.path.join(A.OUT, "곡선.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        json.dump(기록, open(os.path.join(A.OUT, 이름 + ".json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
         med = lambda f: float(np.median([f(v) for v in 기록.values()]))
         print("F@2mm 겉 %.3f · 챔퍼 %.2f · 새 각도 %.3f · 표면각 90%% 우리 %.1f° 정답 %.1f° · 닫힘 %d/%d" % (
             med(lambda v: v["F@2mm 겉"]), med(lambda v: v["챔퍼 중앙"]), med(lambda v: v["새 각도 중앙"]),

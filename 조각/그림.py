@@ -101,8 +101,8 @@ def 후보들(앞, 옆, 키):
         짝들 = [[(0, 0), (1, 0)]] if no == 1 else [[(0, 0), (1, 1)], [(0, 1), (1, 0)]]
         for 짝 in 짝들:
             out.append(("두 덩어리", " + ".join(기둥(xs[i], ys[j]) for i, j in 짝)))
-    for 이름, 줄 in (("부위 타원뿔대", _부드럽게(사람형(앞, 옆, 키, 2))), ("부위 로프트", _부드럽게(사람형(앞, 옆, 키, 5))), ("혼합 겹침", _부드럽게(혼합겹침(앞, 옆, 키))),
-                     ("층 겹침", _부드럽게(층겹침(앞, 옆, 키)))):
+    for 이름, 줄 in (("부위 타원뿔대", _부드럽게(사람형(앞, 옆, 키, 2))), ("부위 로프트", _부드럽게(사람형(앞, 옆, 키, 5))), ("혼합 켜부피", 혼합켜부피(앞, 옆, 키)),
+                     ("켜 부피", 켜부피줄(앞, 옆, 키))):
         if 줄:
             out.append((이름, 줄))
     return out
@@ -439,6 +439,39 @@ def 혼합겹침(앞, 옆, 키, 팔매듭=9):
         ys, xs = np.nonzero(L == 번)
         토막.append(_로프트줄(ys, xs, 번, 앞, 옆, fa, fo, 팔매듭))
     return " + ".join(토막)
+
+
+def 켜부피줄(앞, 옆, 키, 뺄=None, 격자=1.0):
+    """켜 부피 DSL 한 줄 — 높이 격자 mm 마다 (앞 구간 × 옆 구간) 타원. 줄기를 안 만든다(09-24 「슬라이스」 고침).
+    뺄 = 앞 그림에서 뺄 화소(혼합의 팔)."""
+    fa, fo = 틀(앞, 키), 틀(옆, 키)
+    z1 = fa.범위()[3]
+    켜 = []
+    for z in np.arange(격자 / 2, z1, 격자):
+        ra = int(np.clip(round(fa.bot - z / fa.s - 0.5), 0, 앞.shape[0] - 1))
+        ro = int(np.clip(round(fo.bot - z / fo.s - 0.5), 0, 옆.shape[0] - 1))
+        줄 = 앞[ra] if 뺄 is None else 앞[ra] & ~뺄[ra]
+        ts = [[round(float(((a + b) / 2 - fa.c) * fa.s), 1), round(float(-((c + d) / 2 - fo.c) * fo.s), 1),
+               round(float((b - a) * fa.s), 1), round(float((d - c) * fo.s), 1)]
+              for a, b in _줄조각(줄) for c, d in _줄조각(옆[ro])]
+        켜.append([round(float(z), 2), ts])
+    while 켜 and not 켜[0][1]:
+        켜.pop(0)
+    while 켜 and not 켜[-1][1]:
+        켜.pop()
+    return "켜부피(켜=%s)" % 켜 if 켜 else None
+
+
+def 혼합켜부피(앞, 옆, 키, 팔매듭=9):
+    """켜 부피(몸통 · 다리 · 머리) + 팔만 로프트, 부드럽게 합침. T 포즈 팔을 켜로 쌓으면 팔 전체가 한 타원의 끝이 된다."""
+    fa, fo = 틀(앞, 키), 틀(옆, 키)
+    L = 부위나누기(앞)
+    팔 = [번 for 번 in (3, 4) if (L == 번).sum() >= 30]
+    if not 팔:
+        return None
+    몸 = 켜부피줄(앞, 옆, 키, 뺄=np.isin(L, 팔))
+    토막 = ([몸] if 몸 else []) + [_로프트줄(*np.nonzero(L == 번), 번, 앞, 옆, fa, fo, 팔매듭) for 번 in 팔]
+    return _부드럽게(" + ".join(토막))
 
 
 def _부드럽게(줄, 반경=3.0):
