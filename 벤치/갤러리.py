@@ -1,6 +1,7 @@
 """35장 한눈에 — 케이스마다 입력 앞 · 옆 | 정답 | 우리(오차 색) | 우리 정면 (09-24).
 
-    python 벤치/갤러리.py      -> out/갤러리_1.png … (나쁜 것부터 6장씩)
+    python 벤치/갤러리.py        -> out/갤러리_1.png … (나쁜 것부터 6장씩)
+    python 벤치/갤러리.py 곡선   -> out/갤러리곡선_1.png … 입력 앞 | 정답 | 이전 exe(계단) | 곡선 | 곡선 정면 (곡선 F 나쁜 것부터)
 
   지금 exe 결과(out/exe) · 잘렸던 4장은 넓은 시트 결과(out/exe넓게). 자 = F@2mm 겉(대표) · 챔퍼 중앙.
   3/4 그림은 점 구름에 면 방향 그늘 — 정답은 회색, 우리는 정답 바깥 겉면까지 거리 색(파랑 0 · 노랑 2 mm · 빨강 6 mm 이상).
@@ -118,5 +119,51 @@ def main():
     json.dump(기록, open(os.path.join(A.OUT, "갤러리.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
 
+
+
+def 메시점(폴더, 답점):
+    m = trimesh.load(os.path.join(폴더, "메시.stl"), force="mesh")
+    우 = J.mm메시(A.창(m.vertices), m.faces)
+    P, fi = 우.sample(30000, return_index=True, seed=3)
+    d, _ = cKDTree(답점).query(P)
+    return 우, P, 우.face_normals[fi], d
+
+
+def 비교():
+    곡 = json.load(open(os.path.join(A.OUT, "곡선.json"), encoding="utf-8"))
+    순서 = sorted(곡, key=lambda c: 곡[c]["F@2mm 겉"])
+    쪽 = 6
+    for p in range(0, len(순서), 쪽):
+        묶 = 순서[p:p + 쪽]
+        im = Image.new("RGB", (칸 * 5 + 20, 60 + len(묶) * (칸 + 34)), "white")
+        d = ImageDraw.Draw(im)
+        d.text((10, 8), "입력 앞 | 정답 (3/4) | 이전 exe — 계단 (3/4) | 곡선 — 부드럽게 합침 (3/4) | 곡선 (정면)   색: 정답까지 파랑 0 · 노랑 2 · 빨강 6 mm+",
+               fill="black", font=K._글꼴(15))
+        d.text((10, 30), "곡선 F 나쁜 것부터 · %d-%d / %d" % (p + 1, p + len(묶), len(순서)), fill=(110, 110, 110), font=K._글꼴(13))
+        for k, c in enumerate(묶):
+            g = A.정답(c)
+            답점, _ = J.겉점(g)
+            답 = J.mm메시(g["메시"].vertices, g["메시"].faces)
+            Pd, fd = 답.sample(30000, return_index=True, seed=2)
+            이전 = 메시점(os.path.join(A.OUT, "exe넓게" if c in 잘린 else "exe", c), 답점)
+            곡선 = 메시점(os.path.join(A.OUT, "곡선", c), 답점)
+            모두 = np.vstack([Pd, 이전[1], 곡선[1]])
+            가운데 = (모두.max(0) + 모두.min(0)) / 2
+            반 = float(np.abs(모두 - 가운데).max())
+            그림 = [입력(c)[0], 점그림(Pd, 답.face_normals[fd], np.full((len(Pd), 3), 200.0), 35, 18, 가운데, 반),
+                  점그림(이전[1], 이전[2], 거리색(이전[3]), 35, 18, 가운데, 반),
+                  점그림(곡선[1], 곡선[2], 거리색(곡선[3]), 35, 18, 가운데, 반),
+                  점그림(곡선[1], 곡선[2], 거리색(곡선[3]), 0, 0, 가운데, 반)]
+            f0, _, _ = J.F겉(이전[0], 답점)
+            v = 곡[c]
+            y = 60 + k * (칸 + 34)
+            d.text((10, y), "%s   F겉 이전 %.3f -> 곡선 %.3f · 챔퍼 %.2f mm · 표면각 90%% %.0f° (정답 %.0f°) · %s" % (
+                c, f0, v["F@2mm 겉"], v["챔퍼 중앙"], v["표면각 우리"][1], v["표면각 정답"][1], v["1순위"]), fill="black", font=K._글꼴(14))
+            for i, t in enumerate(그림):
+                im.paste(t, (10 + i * 칸, y + 22))
+            print(c, flush=True)
+        im.save(os.path.join(A.OUT, "갤러리곡선_%d.png" % (p // 쪽 + 1)))
+
+
 if __name__ == "__main__":
-    main()
+    비교() if len(sys.argv) > 1 and sys.argv[1] == "곡선" else main()

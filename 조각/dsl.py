@@ -186,7 +186,7 @@ def _항들(n):
     return [n]
 
 
-def 부드럽게(조각들, 반경=3.0, 격자=1.0):
+def 부드럽게(조각들, 반경=3.0, 격자=1.0, 흐림=1.0):
     """조각들을 **부드럽게 합친다** — 이음매(겨드랑이 · 가랑이 · 목)를 반경 mm 로 둥글린다.
     조각마다 높이마다 잘라 칠한 칸 -> 거리 변환 = 부호 거리장(속 -) · 다항식 부드러운 최솟값 · manifold level_set(마칭 사면체).
     모든 기본형이 된다(자른 면을 칠하니까). 격자 mm = 표면 세밀도. 결정적이다(같은 줄 -> 같은 해시)."""
@@ -219,6 +219,8 @@ def 부드럽게(조각들, 반경=3.0, 격자=1.0):
         with np.errstate(invalid="ignore"):
             D[blk] = np.where(np.isinf(a), sd, a * (1 - h) + sd * h - 반경 * h * (1 - h))
     D[np.isinf(D)] = 10 * 반경
+    if 흐림:                                                              # 칠한 칸의 거리는 격자 계단을 탄다 — 칸 σ 로 흐려 곡면으로(09-24 그림에서 봄)
+        D = ndimage.gaussian_filter(D, 흐림)
     # manifold 의 level_set(체심 격자 · 마칭 사면체)은 늘 다양체를 낸다 — skimage 마칭 큐브는 얇은 곳에서 꼬였다(09-24)
     nx, ny, nz = D.shape
 
@@ -231,7 +233,21 @@ def 부드럽게(조각들, 반경=3.0, 격자=1.0):
         c = c[0] * (1 - fv) + c[1] * fv
         return -float(c[0] * (1 - fw) + c[1] * fw)
 
-    return M.level_set(거리, list(lo) + list(lo + (np.asarray(D.shape) - 1) * 격자), 격자)
+    man = M.level_set(거리, list(lo) + list(lo + (np.asarray(D.shape) - 1) * 격자), 격자)
+    # 면이 한 점에서 맞닿는 곳(스치는 두 다리)은 같은 좌표의 다른 정점으로 남는다 — manifold 는 되지만 STL 은 합쳐 구멍이 난다.
+    # 그런 정점을 제 면 가운데 쪽으로 0.01 mm 떼어 놓는다(결정적).
+    me = man.to_mesh()
+    V = np.asarray(me.vert_properties, np.float64)[:, :3]
+    F = np.asarray(me.tri_verts, np.int64)
+    _, inv, cnt = np.unique(V, axis=0, return_inverse=True, return_counts=True)
+    겹 = np.nonzero(cnt[inv.reshape(-1)] > 1)[0]
+    if len(겹):
+        중 = V[F].mean(1)
+        for i in 겹:
+            t = 중[(F == i).any(1)].mean(0) - V[i]
+            V[i] += 0.01 * t / max(np.linalg.norm(t), 1e-12)
+        man = M(m3.Mesh(vert_properties=np.ascontiguousarray(V, np.float32), tri_verts=np.ascontiguousarray(F, np.uint32)))
+    return man
 
 
 def _풀기(n):
