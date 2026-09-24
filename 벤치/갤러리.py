@@ -129,15 +129,15 @@ def 메시점(폴더, 답점):
     return 우, P, 우.face_normals[fi], d
 
 
-def 비교():
-    곡 = json.load(open(os.path.join(A.OUT, "곡선.json"), encoding="utf-8"))
+def 비교(이름="곡선"):
+    곡 = json.load(open(os.path.join(A.OUT, 이름 + ".json"), encoding="utf-8"))
     순서 = sorted(곡, key=lambda c: 곡[c]["F@2mm 겉"])
     쪽 = 6
     for p in range(0, len(순서), 쪽):
         묶 = 순서[p:p + 쪽]
         im = Image.new("RGB", (칸 * 5 + 20, 60 + len(묶) * (칸 + 34)), "white")
         d = ImageDraw.Draw(im)
-        d.text((10, 8), "입력 앞 | 정답 (3/4) | 이전 exe — 계단 (3/4) | 곡선 — 부드럽게 합침 (3/4) | 곡선 (정면)   색: 정답까지 파랑 0 · 노랑 2 · 빨강 6 mm+",
+        d.text((10, 8), "입력 앞 | 정답 (3/4) | 이전 exe — 계단 (3/4) | %s (3/4) | %s (정면)   색: 정답까지 파랑 0 · 노랑 2 · 빨강 6 mm+" % (이름, 이름),
                fill="black", font=K._글꼴(15))
         d.text((10, 30), "곡선 F 나쁜 것부터 · %d-%d / %d" % (p + 1, p + len(묶), len(순서)), fill=(110, 110, 110), font=K._글꼴(13))
         for k, c in enumerate(묶):
@@ -146,7 +146,7 @@ def 비교():
             답 = J.mm메시(g["메시"].vertices, g["메시"].faces)
             Pd, fd = 답.sample(30000, return_index=True, seed=2)
             이전 = 메시점(os.path.join(A.OUT, "exe넓게" if c in 잘린 else "exe", c), 답점)
-            곡선 = 메시점(os.path.join(A.OUT, "곡선", c), 답점)
+            곡선 = 메시점(os.path.join(A.OUT, 이름, c), 답점)
             모두 = np.vstack([Pd, 이전[1], 곡선[1]])
             가운데 = (모두.max(0) + 모두.min(0)) / 2
             반 = float(np.abs(모두 - 가운데).max())
@@ -162,8 +162,8 @@ def 비교():
             for i, t in enumerate(그림):
                 im.paste(t, (10 + i * 칸, y + 22))
             print(c, flush=True)
-        im.save(os.path.join(A.OUT, "갤러리곡선_%d.png" % (p // 쪽 + 1)))
+        im.save(os.path.join(A.OUT, "갤러리%s_%d.png" % (이름, p // 쪽 + 1)))
 
 
 if __name__ == "__main__":
-    비교() if len(sys.argv) > 1 and sys.argv[1] == "곡선" else main()
+    비교(sys.argv[1]) if len(sys.argv) > 1 else main()
