@@ -102,7 +102,7 @@ def 후보들(앞, 옆, 키):
         for 짝 in 짝들:
             out.append(("두 덩어리", " + ".join(기둥(xs[i], ys[j]) for i, j in 짝)))
     for 이름, 줄 in (("부위 타원뿔대", 사람형(앞, 옆, 키, 2)), ("부위 로프트", 사람형(앞, 옆, 키, 5)), ("혼합", 혼합(앞, 옆, 키)),
-                     ("층 타원", 층타원(앞, 옆, 키))):
+                     ("층 타원", 층타원(앞, 옆, 키)), ("층 겹침", 층겹침(앞, 옆, 키))):
         if 줄:
             out.append((이름, 줄))
     return out
@@ -376,6 +376,54 @@ def 혼합매끈(앞, 옆, 키, 팔매듭=9):
         ys, xs = np.nonzero(L == 번)
         토막.append(_로프트줄(ys, xs, 번, 앞, 옆, fa, fo, 팔매듭))
     return " + ".join(토막)
+
+
+def _겹켜재기(앞, 옆, fa, fo, 층수=60):
+    """켜마다 (z0, z1, [(a, b, y, 깊이)]) 아래→위. a, b = 정면 화소 구간 · y, 깊이 = **옆 구간마다** mm."""
+    rows = np.nonzero(앞.any(1))[0]
+    경계 = np.linspace(rows.min(), rows.max() + 1, 층수 + 1)
+    켜들 = []
+    for r0, r1 in zip(경계[:-1], 경계[1:]):
+        r = int((r0 + r1) / 2)
+        z0, z1 = (fa.bot - r1) * fa.s, (fa.bot - r0) * fa.s
+        ro = int(np.clip(round(fo.bot - (z0 + z1) / 2 / fo.s - 0.5), 0, 옆.shape[0] - 1))
+        상자 = [(a, b, -((c + d) / 2 - fo.c) * fo.s, (d - c) * fo.s) for a, b in _줄조각(앞[r]) for c, d in _줄조각(옆[ro])]
+        if 상자:
+            켜들.append((z0, z1, 상자))
+    return 켜들[::-1]
+
+
+def _겹(p, q):
+    return min(p[1], q[1]) > max(p[0], q[0]) and abs(p[2] - q[2]) < (p[3] + q[3]) / 2
+
+
+def 층겹침(앞, 옆, 키):
+    """층타원매끈 + 옆 그림의 빈 곳도 판다 (09-24 `벤치/겹침.py`: 안되던 17장 F@2mm 0.455 -> 0.509, 떨어진 것 0).
+    켜마다 정면 구간 × 옆 구간마다 타원 — 두 그림 어느 쪽과도 어긋나지 않는다. 위아래는 x · y 둘 다 겹치고 1대1 이면 잇는다."""
+    fa, fo = 틀(앞, 키), 틀(옆, 키)
+    켜들 = _겹켜재기(앞, 옆, fa, fo)
+    줄기들, 열린 = [], []
+    for i, (_, _, 상자) in enumerate(켜들):
+        새 = []
+        for g in 상자:
+            닿 = [줄 for 줄 in 열린 if _겹(g, 줄[-1][1])]
+            if len(닿) == 1 and sum(_겹(gg, 닿[0][-1][1]) for gg in 상자) == 1:
+                닿[0].append((i, g))
+                새.append(닿[0])
+                continue
+            줄기들.append([(i, g)])
+            새.append(줄기들[-1])
+        열린 = 새
+    토막 = []
+    for 줄 in 줄기들:
+        z, x, y, w, d = [], [], [], [], []
+        for n, (i, (a, b, yy, 깊이)) in enumerate(줄):
+            z0, z1, _ = 켜들[i]
+            for h in ([z0] if n == 0 else []) + [(z0 + z1) / 2] + ([z1 + 0.01] if n == len(줄) - 1 else []):
+                z.append(round(float(h), 2)); x.append(round(float(((a + b) / 2 - fa.c) * fa.s), 1)); y.append(round(float(yy), 1))
+                w.append(round(float((b - a) * fa.s), 1)); d.append(round(float(깊이), 1))
+        토막.append("층쌓기(z=%s, x=%s, y=%s, w=%s, d=%s)" % (z, x, y, w, d))
+    return " + ".join(토막) or None
 
 
 def 대보기(줄, 앞, 옆, 키):

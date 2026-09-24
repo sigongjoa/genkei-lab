@@ -16,6 +16,11 @@
   로봇 0.581 -> 0.731 · 드릴 0.455 -> 0.509 · 로봇(다리 총) 0.459 -> 0.539 · 노움 0.641 -> 0.714 · 마녀 0.666 -> 0.738 ·
   메카 0.268 -> 0.317 · 검들기 0.619 -> 0.682. 그대로: 상자 둘 · 모자 · 종(옆 그림에 빈 곳이 없다 — 속 빔 · 꼴 문제).
   대조 5장 0.867 -> 0.867 (avatarsample_d +0.003, 나머지 같음). 그림 out/겹침.png — 로봇 팔 뒤 망토처럼 막히던 곳이 빠졌다.
+
+exe 에 넣은 뒤 (09-24, 조각/그림.py 후보 「층 겹침」 · exe 다시 굽고 35장, 돌리기 전에 커밋):
+  X1 35장 F@2mm 중앙 >= 0.727 (09-23 exe, out/지표_0923.json) — 계단 켜 대신 매끈이 되어도 잃지 않는다
+  X2 안되던 17장 F@2mm 중앙 +0.03 이상 (exe 가 앱 점수로 층 겹침을 고르는가)
+  X3 모든 장 exe 해시 = 파이썬 재생 해시
 """
 import json
 import os
@@ -35,58 +40,9 @@ from 틀빌더 import 재기, 시트  # noqa: E402
 대조 = ["avatarsample_d", "base_male", "base_female", "마네킹_차렷", "마네킹_T포즈"]
 
 
-def 켜재기(앞, 옆, fa, fo, 층수=60):
-    """켜마다 (z0, z1, [(a, b, y, 깊이)]) 아래→위. a, b = 정면 화소 구간 · y, 깊이 = 옆 구간 mm."""
-    rows = np.nonzero(앞.any(1))[0]
-    경계 = np.linspace(rows.min(), rows.max() + 1, 층수 + 1)
-    켜들 = []
-    for r0, r1 in zip(경계[:-1], 경계[1:]):
-        r = int((r0 + r1) / 2)
-        z0, z1 = (fa.bot - r1) * fa.s, (fa.bot - r0) * fa.s
-        ro = int(np.clip(round(fo.bot - (z0 + z1) / 2 / fo.s - 0.5), 0, 옆.shape[0] - 1))
-        옆조각 = G._줄조각(옆[ro])
-        상자 = [(a, b, -((c + d) / 2 - fo.c) * fo.s, (d - c) * fo.s) for a, b in G._줄조각(앞[r]) for c, d in 옆조각]
-        if 상자:
-            켜들.append((z0, z1, 상자))
-    return 켜들[::-1]
-
-
-def _겹(p, q):
-    return min(p[1], q[1]) > max(p[0], q[0]) and abs(p[2] - q[2]) < (p[3] + q[3]) / 2
-
-
-def 줄기(켜들):
-    """x · y 둘 다 겹치고 1대1 이면 잇는다 (그림.켜줄기 와 같은 규칙, 겹침만 2D)."""
-    줄기들, 열린 = [], []
-    for i, (_, _, 상자) in enumerate(켜들):
-        새 = []
-        for g in 상자:
-            닿 = [줄 for 줄 in 열린 if _겹(g, 줄[-1][1])]
-            if len(닿) == 1 and sum(_겹(gg, 닿[0][-1][1]) for gg in 상자) == 1:
-                닿[0].append((i, g))
-                새.append(닿[0])
-                continue
-            줄 = [(i, g)]
-            줄기들.append(줄)
-            새.append(줄)
-        열린 = 새
-    return 줄기들
-
-
 def 줄(case, 키=150.0):
     앞, 옆 = (G.마스크(os.path.join(시트, case, n + ".png")) for n in ("front", "side"))
-    fa, fo = G.틀(앞, 키), G.틀(옆, 키)
-    켜들 = 켜재기(앞, 옆, fa, fo)
-    토막 = []
-    for 줄 in 줄기(켜들):
-        z, x, y, w, d = [], [], [], [], []
-        for n, (i, (a, b, yy, 깊이)) in enumerate(줄):
-            z0, z1, _ = 켜들[i]
-            for h in ([z0] if n == 0 else []) + [(z0 + z1) / 2] + ([z1 + 0.01] if n == len(줄) - 1 else []):
-                z.append(round(float(h), 2)); x.append(round(float(((a + b) / 2 - fa.c) * fa.s), 1)); y.append(round(float(yy), 1))
-                w.append(round(float((b - a) * fa.s), 1)); d.append(round(float(깊이), 1))
-        토막.append("층쌓기(z=%s, x=%s, y=%s, w=%s, d=%s)" % (z, x, y, w, d))
-    return " + ".join(토막)
+    return G.층겹침(앞, 옆, 키)                                          # 09-24 exe 후보로 옮김 (조각/그림.py)
 
 
 def main():
