@@ -16,6 +16,16 @@
   D1 색 묶음 라벨 정확도 중앙 >= 0.85
   D2 지금 키트 부품(규칙 6 개) 순도 중앙 <= 0.75 (몸통 = 상의 + 하의 + 피부가 섞인다)
   D3 색 부품 순도 중앙 >= 0.90
+
+돌린 뒤 (09-24) — 셋 다 틀림: 라벨 0.754 · 규칙 부품 순도 0.757 · 색 부품 순도 0.894 (11장 모두 색 > 규칙, 중앙 +0.137).
+  그림(out/도색단위_시험.png)에서 본 까닭 — **정답(재질)이 도색 단위가 아니다**: 무릎 양말은 피부 텍스처에 칠해져 「피부」,
+  조끼 · 치마는 같은 남색인데 상의 · 하의로 갈린다. 재질 = 텍스처 묶음이지 칠하는 색이 아니다.
+
+추가 (결과를 본 뒤 · 탐색) — 정답을 **원본 텍스처 색**으로: 정답 겉면 점의 UV 로 기본색 텍스처 × 계수를 읽어
+  우리와 같은 k-평균(k=8, 작은 묶음 합침)으로 묶은 것 = 도색 단위 정답. `python 벤치/도색단위.py 색`
+  예측 (돌리기 전에 커밋):
+  E1 색 부품 순도(텍스처 색 정답) 중앙 >= 0.85
+  E2 색 부품 순도 - 규칙 부품 순도 중앙 >= +0.10
 """
 import json
 import os
@@ -188,6 +198,74 @@ def 한장(c):
             "정답 단위 몫": {u: round(float((참 == u).mean()), 3) for u in 단위들 if (참 == u).any()}}, (V, F, P, 라, 참)
 
 
+def 정답색점(case, n=120000):
+    """원본 겉면 점 · 칠해진 색(기본색 텍스처 × 계수) — 창 좌표."""
+    s = trimesh.load(os.path.join(시트, case, "_model.glb"))
+    ms = s.dump()
+    전 = np.vstack([np.asarray(m.vertices)[:, [0, 2, 1]] * [1, -1, 1] for m in ms])
+    lo, hi = 전.min(0), 전.max(0)
+    s_ = 1.0 / (hi[2] - lo[2])
+    중 = np.array([(lo[0] + hi[0]) / 2, (lo[1] + hi[1]) / 2, lo[2]]) * s_
+    총 = sum(m.area for m in ms)
+    점, 색 = [], []
+    for m in ms:
+        k = max(1, int(n * m.area / 총))
+        q, fi = trimesh.sample.sample_surface(m, k, seed=0)
+        mt = m.visual.material
+        인수 = np.asarray(getattr(mt, "baseColorFactor", None) if getattr(mt, "baseColorFactor", None) is not None else [255] * 4, float)[:3] / 255
+        if m.visual.uv is not None and getattr(mt, "baseColorTexture", None) is not None:
+            b = trimesh.triangles.points_to_barycentric(m.triangles[fi], q)
+            uv = (m.visual.uv[m.faces[fi]] * b[:, :, None]).sum(1)
+            c = trimesh.visual.color.uv_to_color(uv, mt.baseColorTexture)[:, :3].astype(float)
+        else:
+            c = np.full((len(q), 3), 255.0)
+        점.append(q[:, [0, 2, 1]] * [1, -1, 1] * s_ - 중)
+        색.append(np.clip(c * 인수, 0, 255))
+    return np.vstack(점), np.vstack(색)
+
+
+def _묶기(rgb, k=8):
+    L = _lab(rgb)
+    cen, lab = kmeans2(L, k, seed=np.random.default_rng(0), minit="++")
+    몫 = np.bincount(lab, minlength=k) / len(lab)
+    큰 = np.nonzero(몫 >= 0.02)[0]
+    for s_ in np.nonzero(몫 < 0.02)[0]:
+        lab[lab == s_] = 큰[np.argmin(np.linalg.norm(cen[큰] - cen[s_], axis=1))]
+    return lab
+
+
+def 색정답():
+    기록 = {}
+    for c in VRoid:
+        답P, 답색 = 정답색점(c)
+        답라 = _묶기(답색)
+        T = cKDTree(답P)
+        곡 = trimesh.load(os.path.join(A.OUT, "켜부피", c, "메시.stl"), force="mesh")
+        틀 = 창틀(곡.vertices)
+        V, F = 틀(곡.vertices), np.asarray(곡.faces)
+        P, fi, 라 = 색라벨(c, V, F)
+        참 = 답라[T.query(P)[1]]
+        조각 = 색부품(trimesh.Trimesh(V, F, process=False), fi, 라)
+        색순도, _ = 순도(참, 조각)
+        전 = trimesh.load(os.path.join(A.OUT, "exe", c, "메시.stl"), force="mesh")
+        틀2 = 창틀(전.vertices)
+        Q, 무 = [], []
+        for 이름 in sorted(os.listdir(os.path.join(A.OUT, "exe", c, "부품"))):
+            p = trimesh.load(os.path.join(A.OUT, "exe", c, "부품", 이름), force="mesh")
+            q = trimesh.sample.sample_surface(trimesh.Trimesh(틀2(p.vertices), p.faces, process=False), 4000, seed=2)[0]
+            Q.append(q)
+            무 += [이름[:-4]] * len(q)
+        규칙순도, _ = 순도(답라[T.query(np.vstack(Q))[1]], np.array(무))
+        기록[c] = {"색 부품 순도": round(float(색순도), 3), "규칙 부품 순도": round(float(규칙순도), 3), "정답 색 묶음 수": int(len(np.unique(답라)))}
+        print("%-26s 색 부품 순도 %.3f · 규칙 부품 순도 %.3f · 정답 색 묶음 %d" % (c, 색순도, 규칙순도, 기록[c]["정답 색 묶음 수"]), flush=True)
+    med = lambda k: float(np.median([v[k] for v in 기록.values()]))
+    d = float(np.median([v["색 부품 순도"] - v["규칙 부품 순도"] for v in 기록.values()]))
+    print("중앙 — 색 부품 %.3f · 규칙 부품 %.3f · 차 %+.3f" % (med("색 부품 순도"), med("규칙 부품 순도"), d))
+    print("  %s E1 색 부품 순도 >= 0.85
+  %s E2 차 >= +0.10" % ("○" if med("색 부품 순도") >= 0.85 else "✗", "○" if d >= 0.10 else "✗"))
+    json.dump(기록, open(os.path.join(A.OUT, "도색단위_색.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+
+
 def main():
     기록, 그림들 = {}, {}
     for c in VRoid:
@@ -206,4 +284,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    색정답() if len(sys.argv) > 1 and sys.argv[1] == "색" else main()
