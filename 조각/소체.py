@@ -98,8 +98,9 @@ def _로프트두(쪽, w, d, 길이, x0, 이름위, 이름아래, 옆쪽):
     """한쪽 팔다리 -> 윗 · 아래 두 로프트(가운데 매듭에서 만남)."""
     n = len(w)
     ts = np.linspace(0, 길이, n)
-    점 = [[round(float(쪽["뿌리"][0] + t * 쪽["방향"][0] - x0), 1), round(float(쪽["y"]), 1),
-          round(float(쪽["뿌리"][1] + t * 쪽["방향"][1]), 1)] for t in ts]
+    # 0.001 mm 로 — 0.1 mm 로 반올림하면 거울이 아닌 자세에서 짝 길이가 달라졌다(미믹 부피 차 0.5 %, 09-25)
+    점 = [[round(float(쪽["뿌리"][0] + t * 쪽["방향"][0] - x0), 3), round(float(쪽["y"]), 3),
+          round(float(쪽["뿌리"][1] + t * 쪽["방향"][1]), 3)] for t in ts]
     h = n // 2
     return ['로프트(점=%s, w=%s, d=%s, 이름="%s.%s")' % (점[:h + 1], list(map(float, w[:h + 1])), list(map(float, d[:h + 1])), 이름위, 옆쪽),
             '로프트(점=%s, w=%s, d=%s, 이름="%s.%s")' % (점[h:], list(map(float, w[h:])), list(map(float, d[h:])), 이름아래, 옆쪽)]
