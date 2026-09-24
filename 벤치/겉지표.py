@@ -33,23 +33,7 @@ sys.path.insert(0, A.원화3d)
 import 정답 as JJ            # noqa: E402
 
 
-def 겉점(g, n=60000):
-    """정답 dict -> (바깥 겉면 점 mm, 속면 몫)."""
-    E = ndimage.binary_erosion(g["TF"], iterations=2)
-    P = g["메시"].sample(n, seed=1)
-    ij = np.rint(P / JJ.PITCH).astype(int) - g["ot"]
-    ok = ((ij >= 0) & (ij < E.shape)).all(1)
-    속 = np.zeros(len(P), bool)
-    속[ok] = E[tuple(ij[ok].T)]
-    return P[~속] * J.키, float(속.mean())
-
-
-def F겉(우mm, 답점):
-    pu = 우mm.sample(60000, seed=0)
-    d1, _ = cKDTree(답점).query(pu)
-    d2, _ = cKDTree(pu).query(답점)
-    정, 재 = float((d1 < J.τ).mean()), float((d2 < J.τ).mean())
-    return round(2 * 정 * 재 / max(정 + 재, 1e-9), 3), round(정, 3), round(재, 3)
+겉점, F겉 = J.겉점, J.F겉                                       # 09-24 지표.py 로 옮김
 
 
 def main():

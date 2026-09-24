@@ -7,6 +7,8 @@
   ③ F@2mm               겉면 점이 2 mm 안에 드는 몫(정밀 · 재현의 조화평균). 학계 표준 headline
   ④ 새 각도 실루엣 IoU    입력으로 쓴 앞 · 옆을 뺀 12 각도(비스듬 8 + 위에서 30° 4)에서 본 그림자
   ⑤ 표면각 중앙 · 90%      이웃 면 사이 각. 계단(층 타원 켜)은 90% 가 커진다
+  ⑥ F@2mm 겉 (09-24 부터 대표 자)  정답의 **바깥 겉면**만으로 잰 F. 정답 메시는 부품을 겹쳐 박아 안 보이는 안쪽 면이 많아
+                         (보물상자 겉면의 56 %) 그걸 재현율에 세면 어떤 복원도 못 맞힌다. `벤치/겉지표.py` 참고
 정답은 복셀이 아니라 원본 메시(art2real: 복셀 정답은 45° 계단이라 표면을 못 잰다).
 
 예측 (09-23, 돌리기 전에 커밋) — 사람형 35장:
@@ -90,6 +92,28 @@ def 재기(우, 답):
     return r, (pu, d1, 쌍, ious)
 
 
+def 겉점(g, n=60000):
+    """정답 dict(어댑터.정답) -> (바깥 겉면 점 mm, 속면 몫). 층마다 채운 정답 부피를 2 칸 깎은 속에 든 점 = 안쪽 면."""
+    from scipy import ndimage
+    sys.path.insert(0, A.원화3d)
+    import 정답 as JJ
+    E = ndimage.binary_erosion(g["TF"], iterations=2)
+    P = g["메시"].sample(n, seed=1)
+    ij = np.rint(P / JJ.PITCH).astype(int) - g["ot"]
+    ok = ((ij >= 0) & (ij < E.shape)).all(1)
+    속 = np.zeros(len(P), bool)
+    속[ok] = E[tuple(ij[ok].T)]
+    return P[~속] * 키, float(속.mean())
+
+
+def F겉(우mm, 답점):
+    pu = 우mm.sample(60000, seed=0)
+    d1, _ = cKDTree(답점).query(pu)
+    d2, _ = cKDTree(pu).query(답점)
+    정, 재 = float((d1 < τ).mean()), float((d2 < τ).mean())
+    return round(2 * 정 * 재 / max(정 + 재, 1e-9), 3), round(정, 3), round(재, 3)
+
+
 def mm메시(Vw, F):
     return trimesh.Trimesh(np.asarray(Vw) * 키, F, process=False)
 
@@ -140,7 +164,9 @@ def main():
         m = trimesh.load(os.path.join(A.OUT, "exe", c, "메시.stl"), force="mesh")
         답 = A.정답(c)["메시"]
         r, (pu, d1, 쌍, ious) = 재기(mm메시(A.창(m.vertices), m.faces), mm메시(답.vertices, 답.faces))
-        s = A.채점(m.vertices, m.faces, A.정답(c))
+        g = A.정답(c)
+        r["F@2mm 겉"], _, r["재현 겉"] = F겉(mm메시(A.창(m.vertices), m.faces), 겉점(g)[0])
+        s = A.채점(m.vertices, m.faces, g)
         r.update({"3D IoU": v["exe"], "앞옆 실루엣": round((s["앞"] + s["옆"]) / 2, 3), "1순위": v["1순위"], "묶음": v["묶음"]})
         기록[c] = r
         판(c, r, 쌍, 열지도(pu, d1), v["exe"]).save(os.path.join(A.OUT, "지표_%s.png" % c))
@@ -168,7 +194,7 @@ def 판정(기록):
     for 말, (맞, 글) in zip(예측, 값):
         print("  %s %s\n      %s" % ("○" if 맞 else "✗", 말, 글))
         결과.append({"예측": 말, "맞음": bool(맞), "값": 글})
-    print("  F@2mm 중앙 %.3f" % med(lambda x: x["F@2mm"]))
+    print("  F@2mm 중앙 %.3f · F@2mm 겉 중앙 %.3f (대표)" % (med(lambda x: x["F@2mm"]), med(lambda x: x["F@2mm 겉"])))
     json.dump({"기록": 기록, "예측": 결과}, open(os.path.join(A.OUT, "지표.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
 
 
